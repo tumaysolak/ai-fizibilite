@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Donanım Fizibilite Platformu</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#141a24; --panel2:#1b2330; --line:#26303f;
+    --text:#e6ebf2; --muted:#8a97a8; --accent:#5b8cff; --accent2:#38d39f;
+    --warn:#f5a623; --bad:#ff5c72; --good:#38d39f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  header{padding:20px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px}
+  header h1{font-size:19px;margin:0;font-weight:650}
+  header .sub{color:var(--muted);font-size:12.5px}
+  .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-weight:800;color:#08111f}
+  .wrap{display:grid;grid-template-columns:360px 1fr;gap:0;min-height:calc(100vh - 74px)}
+  .panel{background:var(--panel);border-right:1px solid var(--line);padding:22px;overflow-y:auto}
+  .results{padding:26px 30px;overflow-y:auto}
+  h2.section{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:22px 0 12px;font-weight:600}
+  h2.section:first-child{margin-top:0}
+  label{display:block;font-size:12.5px;color:var(--muted);margin:14px 0 5px}
+  select,input{width:100%;padding:9px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--text);font-size:13.5px}
+  select:focus,input:focus{outline:none;border-color:var(--accent)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .hint{font-size:11px;color:var(--muted);margin-top:3px}
+  button.run{width:100%;margin-top:22px;padding:12px;background:linear-gradient(135deg,var(--accent),#4a7bff);border:none;border-radius:9px;color:#fff;font-size:14.5px;font-weight:650;cursor:pointer}
+  button.run:hover{filter:brightness(1.08)}
+  button.run:disabled{opacity:.6;cursor:wait}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:8px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card .k{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .card .v{font-size:26px;font-weight:700;margin-top:6px;line-height:1.1}
+  .card .v small{font-size:13px;color:var(--muted);font-weight:500}
+  .card .sub{font-size:12px;color:var(--muted);margin-top:5px}
+  .v.good{color:var(--good)} .v.warn{color:var(--warn)} .v.bad{color:var(--bad)}
+  .verdict{padding:14px 18px;border-radius:11px;margin:6px 0 20px;font-size:14px;font-weight:550;border:1px solid}
+  .verdict.good{background:rgba(56,211,159,.09);border-color:rgba(56,211,159,.35);color:#9fe9cc}
+  .verdict.warn{background:rgba(245,166,35,.09);border-color:rgba(245,166,35,.35);color:#f6ce93}
+  .verdict.bad{background:rgba(255,92,114,.09);border-color:rgba(255,92,114,.35);color:#ffb0bb}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:6px}
+  @media(max-width:1100px){.grid2{grid-template-columns:1fr}.wrap{grid-template-columns:1fr}.panel{border-right:none;border-bottom:1px solid var(--line)}}
+  .block{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:18px}
+  .block h3{margin:0 0 12px;font-size:14.5px;font-weight:620}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:7px 4px;border-bottom:1px solid var(--line)}
+  td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:550}
+  .muted{color:var(--muted)}
+  .trace{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11.5px;color:var(--muted);line-height:1.7;white-space:pre-wrap}
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;margin-left:8px}
+  .badge.dc{background:rgba(91,140,255,.15);color:#a9c2ff}
+  .badge.cons{background:rgba(56,211,159,.15);color:#8fe6c9}
+  .warnbox{background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.3);border-radius:9px;padding:11px 14px;font-size:12.5px;color:#f6ce93;margin-bottom:14px}
+  .placeholder{color:var(--muted);text-align:center;margin-top:80px;font-size:15px;line-height:1.7}
+  .placeholder .big{font-size:52px;opacity:.5}
+  .switch{display:flex;align-items:center;gap:8px;margin-top:12px}
+  .switch input{width:auto}
+  .toggle-adv{color:var(--accent);cursor:pointer;font-size:12px;margin-top:14px;display:inline-block}
+  #advanced{display:none}
+  .chartwrap{position:relative;height:280px}
+  .pill{font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AI</div>
+  <div>
+    <h1>AI Donanım Fizibilite Platformu</h1>
+    <div class="sub">Hangi model · ne kadar yatırım · kaç ayda geri öder — düzeltilmiş MILP hesap motoru</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- ============ GİRDİ PANELİ ============ -->
+  <div class="panel">
+    <h2 class="section">1 · Model & İş Yükü</h2>
+    <label>AI Modeli</label>
+    <select id="model"></select>
+    <div class="hint" id="modelNote"></div>
+
+    <div class="row">
+      <div><label>Aylık hacim (token/görsel)</label><input id="volume" type="number" value="50000000"></div>
+      <div><label>Bağlam (token)</label><input id="context" type="number" value="4096"></div>
+    </div>
+    <div class="row">
+      <div><label>Batch boyutu</label><input id="batch" type="number" value="8"></div>
+      <div><label>Bulut fiyatı (USD/1K)</label><input id="cloudRate" type="number" step="0.001" placeholder="otomatik"></div>
+    </div>
+
+    <h2 class="section">2 · Maliyet Varsayımları</h2>
+    <div class="row">
+      <div><label>Elektrik (USD/kWh)</label><input id="elec" type="number" step="0.01" value="0.12"></div>
+      <div><label>USD/TRY kuru</label><input id="usdtry" type="number" step="0.1" value="34"></div>
+    </div>
+    <div class="row">
+      <div><label>Sunucu ek maliyeti (%)</label><input id="overhead" type="number" value="35"></div>
+      <div><label>Ufuk (ay)</label><input id="horizon" type="number" value="36"></div>
+    </div>
+
+    <span class="toggle-adv" onclick="toggleAdv()">▸ Gelişmiş seçenekler</span>
+    <div id="advanced">
+      <div class="row">
+        <div><label>Min TPS kısıtı</label><input id="minTps" type="number" placeholder="yok"></div>
+        <div><label>Maks güç (W)</label><input id="maxPower" type="number" placeholder="yok"></div>
+      </div>
+      <div class="row">
+        <div><label>PUE</label><input id="pue" type="number" step="0.1" value="1.4"></div>
+        <div><label>Karbon (gCO₂/kWh)</label><input id="carbon" type="number" placeholder="yok"></div>
+      </div>
+      <label>Aylık sabit ops (USD)</label><input id="fixedOps" type="number" value="0">
+      <div class="switch"><input type="checkbox" id="alwaysOn"><label style="margin:0">7/24 çalışacak (idle enerji dahil)</label></div>
+    </div>
+
+    <button class="run" id="runBtn" onclick="run()">Fizibiliteyi Hesapla</button>
+  </div>
+
+  <!-- ============ SONUÇ ============ -->
+  <div class="results" id="results">
+    <div class="placeholder">
+      <div class="big">📊</div>
+      <div>Soldan bir model ve iş yükü seçip<br><b>Fizibiliteyi Hesapla</b>'ya basın.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let chart = null;
+
+async function loadModels(){
+  const r = await fetch('/api/models'); const models = await r.json();
+  const sel = $('model');
+  models.forEach(m=>{
+    const o = document.createElement('option');
+    o.value = m.name;
+    o.textContent = `${m.name} — ${m.use_case}`;
+    o.dataset.note = `${m.params_billions}B · ${m.precision} · ${m.deployment}${m.deployment==='CLOUD'?' (bulut)':''}`;
+    o.dataset.ctx = m.default_context_length;
+    sel.appendChild(o);
+  });
+  sel.value = 'Meta Llama 3.1 (70B)';
+  updateNote();
+  sel.addEventListener('change', updateNote);
+}
+function updateNote(){
+  const o = $('model').selectedOptions[0];
+  $('modelNote').textContent = o.dataset.note || '';
+  if(o.dataset.ctx && +o.dataset.ctx>0) $('context').value = o.dataset.ctx;
+}
+function toggleAdv(){ const a=$('advanced'); a.style.display = a.style.display==='block'?'none':'block'; }
+
+function numOrNull(id){ const v=$(id).value.trim(); return v===''?null:+v; }
+const fmtUSD = v => v==null?'—':'$'+(+v).toLocaleString('en-US',{maximumFractionDigits:0});
+const fmtTRY = v => v==null?'—':'₺'+(+v).toLocaleString('tr-TR',{maximumFractionDigits:0});
+const fmtNum = (v,d=1)=> v==null?'—':(+v).toLocaleString('tr-TR',{maximumFractionDigits:d});
+
+async function run(){
+  const btn=$('runBtn'); btn.disabled=true; btn.textContent='Hesaplanıyor…';
+  const body = {
+    model_name: $('model').value,
+    context_length: numOrNull('context'),
+    batch_size: +$('batch').value || 1,
+    monthly_volume: +$('volume').value || 0,
+    electricity_price_usd_per_kwh: +$('elec').value || 0.12,
+    pue: +$('pue').value || 1.4,
+    usd_try: +$('usdtry').value || 34,
+    server_overhead_pct: (+$('overhead').value||0)/100,
+    fixed_monthly_ops_usd: +$('fixedOps').value || 0,
+    cloud_rate_usd_per_1k: numOrNull('cloudRate'),
+    min_tps: numOrNull('minTps'),
+    max_power_watts: numOrNull('maxPower'),
+    carbon_intensity_g_per_kwh: numOrNull('carbon'),
+    horizon_months: +$('horizon').value || 36,
+    always_on: $('alwaysOn').checked,
+  };
+  try{
+    const r = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const data = await r.json();
+    render(data);
+  }catch(e){ $('results').innerHTML = `<div class="warnbox">Hata: ${e}</div>`; }
+  btn.disabled=false; btn.textContent='Fizibiliteyi Hesapla';
+}
+
+function render(d){
+  if(d.error){ $('results').innerHTML = `<div class="warnbox">${d.error}</div>`; return; }
+  const res = $('results');
+
+  if(d.is_cloud){
+    res.innerHTML = `
+      <div class="warnbox">Bu bir <b>bulut / kapalı model</b> — yerel donanım yatırımı uygulanamaz. Yalnızca bulut işletme maliyeti gösterilir.</div>
+      <div class="cards">
+        <div class="card"><div class="k">Aylık Bulut Maliyeti</div><div class="v">${fmtUSD(d.cloud_monthly_usd)}</div><div class="sub">${fmtTRY(d.cloud_monthly_try)}</div></div>
+        <div class="card"><div class="k">Birim Fiyat</div><div class="v">$${fmtNum(d.cloud_rate_usd_per_1k,3)}<small>/1K token</small></div></div>
+      </div>
+      <div class="block"><h3>${d.model.name}</h3><div class="muted">${d.model.notes||''}</div></div>`;
+    return;
+  }
+
+  const c = d.config, roi = d.roi, cost = d.cost, tp = d.throughput;
+  const isImg = d.unit==='image/s';
+  const unitLabel = isImg?'görsel/sn':'token/sn';
+
+  // Verdict
+  let verdict='', vclass='warn';
+  if(roi){
+    if(!roi.capacity_ok){ vclass='bad'; }
+    else if(roi.payback_months && roi.payback_months<=12) vclass='good';
+    else if(roi.payback_months && roi.payback_months<=36) vclass='good';
+    else if(!roi.payback_months) vclass='bad';
+    verdict = roi.payback_verdict;
+  } else { verdict='Bu donanım katalogla karşılanamadı; offload senaryosuna bakın.'; vclass='warn'; }
+
+  // Warnings
+  let warnHtml='';
+  if(c && !c.constraints_met) warnHtml += `<div class="warnbox">⚠ ${(c.warnings||[]).join(' ')}</div>`;
+  (d.warnings||[]).forEach(w=>{ if(w) warnHtml += `<div class="warnbox">⚠ ${w}</div>`; });
+
+  const tierBadge = c ? (c.gpu.includes('A100')||c.gpu.includes('H100')||c.gpu.includes('L40')?'<span class="badge dc">Veri Merkezi</span>':'<span class="badge cons">Tüketici/İş İst.</span>') : '';
+
+  res.innerHTML = `
+    ${warnHtml}
+    <div class="verdict ${vclass}">${verdict}</div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="k">Önerilen Donanım</div>
+        <div class="v" style="font-size:20px">${c?c.label:'—'} ${tierBadge}</div>
+        <div class="sub">${c?c.total_vram_gb+' GB VRAM · '+c.solver:''}</div>
+      </div>
+      <div class="card">
+        <div class="k">Toplam Yatırım (capex)</div>
+        <div class="v">${roi?fmtUSD(roi.upfront_investment_usd):'—'}</div>
+        <div class="sub">${roi?fmtTRY(roi.upfront_investment_try)+' · donanım + %'+(roi.server_overhead_pct*100)+' sunucu':''}</div>
+      </div>
+      <div class="card">
+        <div class="k">Geri Ödeme Süresi</div>
+        <div class="v ${roi&&roi.payback_months&&roi.payback_months<=36?'good':(roi&&!roi.payback_months?'bad':'warn')}">${roi&&roi.payback_months?fmtNum(roi.payback_months,1)+' <small>ay</small>':'—'}</div>
+        <div class="sub">${roi?(roi.capacity_ok?'kapasite yeterli ('+Math.round(roi.utilization*100)+'% kullanım)':'kapasite YETERSİZ'):''}</div>
+      </div>
+      <div class="card">
+        <div class="k">${roi?roi.horizon_months:36} Ayda Net Tasarruf</div>
+        <div class="v ${roi&&roi.net_savings_horizon_usd>0?'good':'bad'}">${roi?fmtUSD(roi.net_savings_horizon_usd):'—'}</div>
+        <div class="sub">${roi&&roi.roi_pct_horizon!=null?'ROI %'+fmtNum(roi.roi_pct_horizon,0)+' · '+fmtTRY(roi.net_savings_horizon_try):''}</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="block">
+        <h3>Aylık Maliyet Karşılaştırması</h3>
+        <table>
+          <tr><td>Yerel işletme (opex: enerji+ops)</td><td>${roi?fmtUSD(roi.opex_month_usd):'—'}</td></tr>
+          <tr><td>Yerel TCO (amortisman + opex)</td><td>${roi?fmtUSD(roi.local_month_tco_usd):'—'}</td></tr>
+          <tr><td>Bulut alternatifi <span class="pill">(${roi?'$'+fmtNum(roi.cloud_rate_used,3)+' '+roi.cloud_rate_unit:''})</span></td><td>${roi?fmtUSD(roi.cloud_month_usd):'—'}</td></tr>
+          <tr><td class="good">Aylık tasarruf (bulut − yerel opex)</td><td class="good">${roi?fmtUSD(roi.monthly_savings_usd):'—'}</td></tr>
+          <tr><td class="muted">Başabaş aylık hacim</td><td class="muted">${roi&&roi.break_even_volume_per_month?fmtNum(roi.break_even_volume_per_month,0)+' '+(isImg?'görsel':'token'):'—'}</td></tr>
+        </table>
+      </div>
+      <div class="block">
+        <h3>Performans & Donanım</h3>
+        <table>
+          <tr><td>Tahmini hız (toplam)</td><td>${fmtNum(tp.aggregate,1)} ${unitLabel}</td></tr>
+          <tr><td>Tek istek hızı</td><td>${fmtNum(tp.single_stream,1)} ${unitLabel}</td></tr>
+          <tr><td>Rejim / darboğaz</td><td>${tp.regime} · ${d.bottleneck.type}</td></tr>
+          <tr><td>KV-cache okuma payı</td><td>%${fmtNum((tp.kv_fraction||0)*100,0)}</td></tr>
+          <tr><td>Aylık kapasite (7/24)</td><td>${d.capacity_per_month?fmtNum(d.capacity_per_month,0):'—'} ${isImg?'görsel':'token'}</td></tr>
+          <tr><td>1K token maliyeti</td><td>${cost&&cost.cost_per_1k_tokens_usd!=null?'$'+fmtNum(cost.cost_per_1k_tokens_usd,4):'—'}</td></tr>
+          ${cost&&cost.emissions_g_co2_per_1k_tokens!=null?`<tr><td>Karbon</td><td>${fmtNum(cost.emissions_g_co2_per_1k_tokens,2)} gCO₂/1K</td></tr>`:''}
+        </table>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Kümülatif Maliyet: Yerel Yatırım vs Bulut</h3>
+      <div class="chartwrap"><canvas id="chart"></canvas></div>
+    </div>
+
+    <div class="grid2">
+      <div class="block">
+        <h3>VRAM Dökümü</h3>
+        <div class="trace">${(d.vram.trace||[]).join('\n')}</div>
+      </div>
+      <div class="block">
+        <h3>Darboğaz Analizi</h3>
+        <p style="margin:0 0 8px"><b>${d.bottleneck.type}</b></p>
+        <p class="muted" style="margin:0">${d.bottleneck.explanation}</p>
+        ${d.offload?`<div class="warnbox" style="margin-top:12px">${d.offload.explanation}</div>`:''}
+      </div>
+    </div>
+  `;
+
+  if(roi && roi.chart) drawChart(roi.chart, roi.payback_months);
+}
+
+function drawChart(ch, payback){
+  const ctx = document.getElementById('chart');
+  if(chart) chart.destroy();
+  chart = new Chart(ctx,{
+    type:'line',
+    data:{ labels: ch.months, datasets:[
+      {label:'Yerel (kümülatif)', data:ch.cumulative_local_usd, borderColor:'#5b8cff', backgroundColor:'rgba(91,140,255,.08)', fill:true, tension:.1, pointRadius:0, borderWidth:2},
+      {label:'Bulut (kümülatif)', data:ch.cumulative_cloud_usd, borderColor:'#38d39f', backgroundColor:'rgba(56,211,159,.06)', fill:true, tension:.1, pointRadius:0, borderWidth:2},
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{labels:{color:'#8a97a8',boxWidth:12}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+': $'+(+c.raw).toLocaleString('en-US',{maximumFractionDigits:0})}},
+        title:{display:!!payback, text: payback?`Başabaş ≈ ${payback.toFixed(1)}. ay`:'', color:'#f6ce93'}
+      },
+      scales:{
+        x:{ticks:{color:'#8a97a8'},grid:{color:'#26303f'},title:{display:true,text:'Ay',color:'#8a97a8'}},
+        y:{ticks:{color:'#8a97a8',callback:v=>'$'+(v/1000)+'k'},grid:{color:'#26303f'}}
+      }
+    }
+  });
+}
+
+loadModels();
+</script>
+</body>
+</html>

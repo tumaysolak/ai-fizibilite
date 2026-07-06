@@ -1,0 +1,14 @@
+{
+  "_comment": "GPU kataloğu — yaklaşık liste fiyatları (USD). Elle veya bir CI job'u ile güncellenebilir.",
+  "gpus": [
+    {"name": "NVIDIA RTX 3060 12GB", "tier": "CONSUMER", "vram_gb": 12, "memory_bandwidth_gbps": 360, "fp16_tflops": 12.7, "price_usd": 330, "power_watts": 170, "pcie_bandwidth_gbps": 32.0, "supports_nvlink": false, "nvlink_bandwidth_gbps": 0.0, "source_note": "NVIDIA resmi teknik özellikler"},
+    {"name": "NVIDIA RTX 4060 8GB", "tier": "CONSUMER", "vram_gb": 8, "memory_bandwidth_gbps": 272, "fp16_tflops": 15.4, "price_usd": 300, "power_watts": 115, "pcie_bandwidth_gbps": 32.0, "supports_nvlink": false, "nvlink_bandwidth_gbps": 0.0, "source_note": "NVIDIA resmi teknik özellikler"},
+    {"name": "NVIDIA RTX 4070 12GB", "tier": "CONSUMER", "vram_gb": 12, "memory_bandwidth_gbps": 504, "fp16_tflops": 29.0, "price_usd": 550, "power_watts": 200, "pcie_bandwidth_gbps": 32.0, "supports_nvlink": false, "nvlink_bandwidth_gbps": 0.0, "source_note": "NVIDIA resmi teknik özellikler"},
+    {"name": "NVIDIA RTX 4090 24GB", "tier": "CONSUMER", "vram_gb": 24, "memory_bandwidth_gbps": 1008, "fp16_tflops": 165.0, "price_usd": 2000, "power_watts": 450, "pcie_bandwidth_gbps": 32.0, "supports_nvlink": false, "nvlink_bandwidth_gbps": 0.0, "source_note": "~$2.000 (1x RTX 4090)"},
+    {"name": "NVIDIA RTX 6000 Ada 48GB", "tier": "WORKSTATION", "vram_gb": 48, "memory_bandwidth_gbps": 960, "fp16_tflops": 91.0, "price_usd": 6800, "power_watts": 300, "pcie_bandwidth_gbps": 32.0, "supports_nvlink": false, "nvlink_bandwidth_gbps": 0.0, "source_note": "~$6.800 (1x RTX 6000 Ada)"},
+    {"name": "NVIDIA A100 40GB SXM", "tier": "DATACENTER", "vram_gb": 40, "memory_bandwidth_gbps": 1555, "fp16_tflops": 312.0, "price_usd": 10000, "power_watts": 400, "pcie_bandwidth_gbps": 32.0, "supports_nvlink": true, "nvlink_bandwidth_gbps": 600, "source_note": "NVIDIA resmi teknik özellikler"},
+    {"name": "NVIDIA A100 80GB SXM", "tier": "DATACENTER", "vram_gb": 80, "memory_bandwidth_gbps": 2039, "fp16_tflops": 312.0, "price_usd": 15000, "power_watts": 400, "pcie_bandwidth_gbps": 32.0, "supports_nvlink": true, "nvlink_bandwidth_gbps": 600, "source_note": "NVIDIA resmi teknik özellikler"},
+    {"name": "NVIDIA H100 80GB SXM", "tier": "DATACENTER", "vram_gb": 80, "memory_bandwidth_gbps": 3350, "fp16_tflops": 989.0, "price_usd": 30000, "power_watts": 700, "pcie_bandwidth_gbps": 64.0, "supports_nvlink": true, "nvlink_bandwidth_gbps": 900, "source_note": "NVIDIA resmi teknik özellikler"},
+    {"name": "NVIDIA L40S 48GB", "tier": "DATACENTER", "vram_gb": 48, "memory_bandwidth_gbps": 864, "fp16_tflops": 362.0, "price_usd": 9000, "power_watts": 350, "pcie_bandwidth_gbps": 64.0, "supports_nvlink": false, "nvlink_bandwidth_gbps": 0.0, "source_note": "NVIDIA resmi teknik özellikler"}
+  ]
+}

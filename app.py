@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+================================================================================
+AI DONANIM FİZİBİLİTE PLATFORMU — FastAPI backend (app.py)
+================================================================================
+Çalıştırma:
+    pip install -r requirements.txt
+    python app.py
+    # veya: uvicorn app:app --reload
+Sonra tarayıcıda:  http://127.0.0.1:8000
+
+Uç noktalar:
+    GET  /                 → web arayüzü (static/index.html)
+    GET  /api/models       → model kataloğu
+    GET  /api/gpus         → GPU kataloğu
+    POST /api/analyze      → fizibilite analizi (JSON gövde: FeasibilityInputs)
+================================================================================
+"""
+from __future__ import annotations
+
+import os
+from typing import Optional
+
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from engine import load_gpu_catalog, load_model_catalog
+from feasibility import FeasibilityAnalyzer, FeasibilityInputs
+from business import BusinessFeasibility, BusinessInputs, catalog_for_ui
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+app = FastAPI(title="AI Donanım Fizibilite Platformu", version="1.0")
+
+GPU_CATALOG = load_gpu_catalog()
+MODEL_CATALOG = load_model_catalog()
+ANALYZER = FeasibilityAnalyzer(GPU_CATALOG, MODEL_CATALOG)
+BUSINESS = BusinessFeasibility(GPU_CATALOG, MODEL_CATALOG)
+
+
+class AnalyzeRequest(BaseModel):
+    model_name: str
+    context_length: Optional[int] = None
+    batch_size: int = 8
+    monthly_volume: float = 50_000_000
+    electricity_price_usd_per_kwh: float = 0.12
+    pue: float = 1.4
+    usd_try: float = 34.0
+    server_overhead_pct: float = 0.35
+    fixed_monthly_ops_usd: float = 0.0
+    cloud_rate_usd_per_1k: Optional[float] = None
+    min_tps: Optional[float] = None
+    max_power_watts: Optional[float] = None
+    carbon_intensity_g_per_kwh: Optional[float] = None
+    horizon_months: int = 36
+    always_on: bool = False
+
+
+@app.get("/api/models")
+def api_models():
+    return [
+        {
+            "name": m.name, "use_case": m.use_case, "deployment": m.deployment.name,
+            "architecture": m.architecture.name, "precision": m.quant().label,
+            "params_billions": m.params_billions,
+            "default_context_length": m.default_context_length,
+            "cloud_rate_usd_per_1k": m.cloud_token_cost_usd_per_1k, "notes": m.notes,
+        }
+        for m in MODEL_CATALOG
+    ]
+
+
+@app.get("/api/gpus")
+def api_gpus():
+    return [
+        {
+            "name": g.name, "tier": g.tier.name, "vram_gb": g.vram_gb,
+            "memory_bandwidth_gbps": g.memory_bandwidth_gbps, "fp16_tflops": g.fp16_tflops,
+            "price_usd": g.price_usd, "power_watts": g.power_watts,
+            "supports_nvlink": g.supports_nvlink,
+        }
+        for g in GPU_CATALOG
+    ]
+
+
+@app.post("/api/analyze")
+def api_analyze(req: AnalyzeRequest):
+    inp = FeasibilityInputs(**req.model_dump())
+    result = ANALYZER.analyze(inp)
+    return JSONResponse(result)
+
+
+class QuickRequest(BaseModel):
+    use_case: str = "genel_asistan"
+    employees: int = 50
+    ai_users: Optional[int] = None
+    sector: str = "diger"
+    current_ai_spend_usd_month: float = 0.0
+    budget_usd: Optional[float] = None
+    quality: str = "dengeli"
+    usd_try: float = 34.0
+    electricity_price_usd_per_kwh: float = 0.12
+
+
+@app.get("/api/usecases")
+def api_usecases():
+    return catalog_for_ui()
+
+
+@app.post("/api/quick")
+def api_quick(req: QuickRequest):
+    bi = BusinessInputs(**req.model_dump())
+    return JSONResponse(BUSINESS.analyze(bi))
+
+
+@app.get("/")
+def index():
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+
+@app.get("/pro")
+def pro():
+    return FileResponse(os.path.join(STATIC_DIR, "pro.html"))
+
+
+# static klasörünü de sun (ileride görsel/asset için)
+if os.path.isdir(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    # Bulut sağlayıcıları PORT ortam değişkeni verir; yerelde 8000'e düşer.
+    port = int(os.environ.get("PORT", "8000"))
+    host = os.environ.get("HOST", "0.0.0.0")
+    uvicorn.run("app:app", host=host, port=port, reload=False)

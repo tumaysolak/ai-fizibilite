@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Fizibilite — Kendi AI'ınız kaça mal olur, ne kadar tasarruf eder?</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0d13; --panel:#141a24; --panel2:#1b2330; --line:#28323f;
+    --text:#eef2f7; --muted:#93a0b2; --accent:#6ea0ff; --accent2:#38d39f;
+    --good:#38d39f; --warn:#f5b342; --bad:#ff6079;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:radial-gradient(1200px 600px at 50% -10%,#16202e,#0a0d13);color:var(--text);min-height:100vh}
+  header{padding:18px 30px;display:flex;align-items:center;gap:13px;border-bottom:1px solid var(--line)}
+  .logo{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-weight:800;color:#081120}
+  header h1{font-size:17px;margin:0;font-weight:650}
+  header .sub{color:var(--muted);font-size:12px}
+  header .pro{margin-left:auto;color:var(--muted);font-size:12.5px;text-decoration:none;border:1px solid var(--line);padding:7px 13px;border-radius:8px}
+  header .pro:hover{color:var(--text);border-color:var(--accent)}
+  .stage{max-width:1080px;margin:0 auto;padding:30px 22px 70px}
+  .hero{text-align:center;margin:16px 0 30px}
+  .hero h2{font-size:27px;margin:0 0 10px;font-weight:700;letter-spacing:-.01em}
+  .hero p{color:var(--muted);font-size:15px;margin:0;max-width:640px;margin-inline:auto;line-height:1.6}
+  .steps{display:flex;justify-content:center;gap:8px;margin:26px 0 22px}
+  .steps .dot{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+  .steps .num{width:24px;height:24px;border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:12px}
+  .steps .dot.active{color:var(--text)} .steps .dot.active .num{background:var(--accent);border-color:var(--accent);color:#081120;font-weight:700}
+  .steps .sep{width:26px;height:1px;background:var(--line);align-self:center}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 28px}
+  .step{display:none} .step.on{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  h3.q{font-size:18px;margin:0 0 4px;font-weight:640}
+  .qsub{color:var(--muted);font-size:13px;margin:0 0 20px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+  .opt{background:var(--panel2);border:1.5px solid var(--line);border-radius:12px;padding:16px;cursor:pointer;transition:.15s}
+  .opt:hover{border-color:#3a5a8f}
+  .opt.sel{border-color:var(--accent);background:rgba(110,160,255,.09)}
+  .opt .t{font-weight:620;font-size:14.5px}
+  .opt .d{color:var(--muted);font-size:12px;margin-top:5px;line-height:1.45}
+  label{display:block;font-size:13px;color:var(--muted);margin:16px 0 6px}
+  input,select{width:100%;padding:11px 13px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--text);font-size:14px}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .nav{display:flex;justify-content:space-between;margin-top:26px}
+  button{padding:12px 22px;border-radius:10px;border:none;font-size:14.5px;font-weight:640;cursor:pointer}
+  .btn-primary{background:linear-gradient(135deg,var(--accent),#5a86ff);color:#fff}
+  .btn-primary:hover{filter:brightness(1.08)} .btn-primary:disabled{opacity:.6;cursor:wait}
+  .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+  .btn-ghost:hover{color:var(--text)}
+  @media(max-width:720px){.row,.row3{grid-template-columns:1fr}}
+
+  /* ---- RESULT ---- */
+  #result{display:none}
+  .verdict{border-radius:16px;padding:22px 26px;margin-bottom:22px;border:1px solid;font-size:15px;line-height:1.6}
+  .verdict.good{background:rgba(56,211,159,.09);border-color:rgba(56,211,159,.35)}
+  .verdict.warn{background:rgba(245,179,66,.09);border-color:rgba(245,179,66,.35)}
+  .verdict h3{margin:0 0 8px;font-size:19px}
+  .verdict .detail{color:var(--muted);font-size:13.5px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:22px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .kpi .k{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .kpi .v{font-size:27px;font-weight:720;margin-top:7px;line-height:1.05}
+  .kpi .v small{font-size:13px;color:var(--muted);font-weight:500}
+  .kpi .s{font-size:12px;color:var(--muted);margin-top:5px}
+  .v.good{color:var(--good)} .v.warn{color:var(--warn)} .v.bad{color:var(--bad)}
+  .block{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:20px}
+  .block h4{margin:0 0 14px;font-size:15px;font-weight:640}
+  .scn{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:820px){.scn{grid-template-columns:1fr}}
+  .scnc{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .scnc.mid{border-color:var(--accent)}
+  .scnc .nm{font-weight:680;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+  .scnc .tag{font-size:10.5px;background:var(--accent);color:#081120;padding:2px 8px;border-radius:20px;font-weight:700}
+  .scnc table{width:100%;margin-top:10px;font-size:12.5px;border-collapse:collapse}
+  .scnc td{padding:5px 0;border-bottom:1px solid var(--line)} .scnc td:last-child{text-align:right;font-weight:600}
+  table.cmp{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.cmp th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;padding:8px 6px;border-bottom:1px solid var(--line)}
+  table.cmp td{padding:11px 6px;border-bottom:1px solid var(--line)}
+  table.cmp td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+  table.cmp tr.best{background:rgba(56,211,159,.06)}
+  .pill{display:inline-block;font-size:11px;padding:2px 9px;border-radius:20px;background:rgba(110,160,255,.14);color:#a9c2ff;margin-left:6px}
+  .chartwrap{position:relative;height:260px}
+  .again{color:var(--accent);cursor:pointer;font-size:13px}
+  .privacy{background:rgba(110,160,255,.08);border:1px solid rgba(110,160,255,.28);border-radius:12px;padding:13px 16px;font-size:13px;color:#bcd0f5;margin-bottom:20px}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AI</div>
+  <div>
+    <h1>AI Fizibilite Danışmanı</h1>
+    <div class="sub">Kendi AI'ınızı kurmak mı, bulutta kalmak mı? Birkaç soruda net cevap.</div>
+  </div>
+  <a class="pro" href="/pro">Teknik mod (Pro) →</a>
+</header>
+
+<div class="stage">
+  <!-- SORULAR -->
+  <div id="wizard">
+    <div class="hero">
+      <h2>AI'a ne kadar yatırım yapmalısınız, kaç ayda geri döner?</h2>
+      <p>Teknik bilgi gerekmez. İşinizle ilgili 3 kısa soruyu yanıtlayın; size hangi modeli,
+         hangi donanımı seçmeniz gerektiğini, yatırım tutarını ve geri ödeme süresini gösterelim.</p>
+    </div>
+
+    <div class="steps">
+      <div class="dot active" data-s="1"><span class="num">1</span> Kullanım amacı</div>
+      <div class="sep"></div>
+      <div class="dot" data-s="2"><span class="num">2</span> Ekip & sektör</div>
+      <div class="sep"></div>
+      <div class="dot" data-s="3"><span class="num">3</span> Bütçe & harcama</div>
+    </div>
+
+    <div class="card">
+      <!-- STEP 1 -->
+      <div class="step on" id="step1">
+        <h3 class="q">AI'ı ne için kullanmak istiyorsunuz?</h3>
+        <p class="qsub">Birincil kullanım amacınızı seçin — hesap buna göre yapılır.</p>
+        <div class="grid" id="useCaseGrid"></div>
+        <div class="nav"><span></span><button class="btn-primary" onclick="go(2)">Devam →</button></div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div class="step" id="step2">
+        <h3 class="q">Ekibiniz ve sektörünüz</h3>
+        <p class="qsub">Kaç kişinin kullanacağı, işlenecek hacmi belirler.</p>
+        <div class="row3">
+          <div><label>Şirketteki toplam çalışan</label><input id="employees" type="number" value="100"></div>
+          <div><label>AI'ı kaç kişi kullanacak?</label><input id="aiUsers" type="number" placeholder="tahmini otomatik"><div class="hint">Boş bırakırsanız sektöre göre tahmin ederiz.</div></div>
+          <div><label>Sektör</label><select id="sector"></select></div>
+        </div>
+        <div class="nav"><button class="btn-ghost" onclick="go(1)">← Geri</button><button class="btn-primary" onclick="go(3)">Devam →</button></div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="step" id="step3">
+        <h3 class="q">Bütçe ve mevcut harcama</h3>
+        <p class="qsub">Bugün AI'a ne ödediğinizi bilirsek, tasarrufu ve geri ödemeyi net gösteririz.</p>
+        <div class="row">
+          <div><label>Şu an AI aboneliklerine toplam aylık ödeme (USD)</label><input id="spend" type="number" value="1000"><div class="hint">Örn. ChatGPT/Claude/Copilot koltuk ücretleri toplamı.</div></div>
+          <div><label>Yatırım bareminiz — capex (USD)</label><input id="budget" type="number" placeholder="sınır yok"><div class="hint">Donanıma ayırabileceğiniz peşin tutar (opsiyonel).</div></div>
+        </div>
+        <div class="row3">
+          <div><label>Kalite tercihi</label><select id="quality"></select></div>
+          <div><label>USD/TRY kuru</label><input id="usdtry" type="number" step="0.1" value="34"></div>
+          <div><label>Elektrik (USD/kWh)</label><input id="elec" type="number" step="0.01" value="0.12"></div>
+        </div>
+        <div class="nav"><button class="btn-ghost" onclick="go(2)">← Geri</button><button class="btn-primary" id="calcBtn" onclick="calc()">Fizibiliteyi Göster →</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SONUÇ -->
+  <div id="result"></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let USECASES=null, selUC=null, chart=null;
+
+async function boot(){
+  const r=await fetch('/api/usecases'); USECASES=await r.json();
+  const g=$('useCaseGrid');
+  USECASES.use_cases.forEach((u,i)=>{
+    const d=document.createElement('div'); d.className='opt'+(i===0?' sel':''); d.dataset.k=u.key;
+    d.innerHTML=`<div class="t">${u.label}</div><div class="d">${u.desc}</div>`;
+    d.onclick=()=>{document.querySelectorAll('#useCaseGrid .opt').forEach(x=>x.classList.remove('sel'));d.classList.add('sel');selUC=u.key;};
+    g.appendChild(d);
+  });
+  selUC=USECASES.use_cases[0].key;
+  const sec=$('sector'); USECASES.sectors.forEach(s=>{const o=document.createElement('option');o.value=s.key;o.textContent=s.label;sec.appendChild(o);});
+  sec.value='yazilim';
+  const q=$('quality'); USECASES.quality.forEach(x=>{const o=document.createElement('option');o.value=x.key;o.textContent=x.label;q.appendChild(o);});
+  q.value='dengeli';
+}
+
+function go(s){
+  document.querySelectorAll('.step').forEach(x=>x.classList.remove('on'));
+  $('step'+s).classList.add('on');
+  document.querySelectorAll('.steps .dot').forEach(d=>d.classList.toggle('active', +d.dataset.s<=s));
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+const numOrNull=id=>{const v=$(id).value.trim();return v===''?null:+v;};
+const fUSD=v=>v==null?'—':'$'+Math.round(+v).toLocaleString('en-US');
+const fTRY=v=>v==null?'—':'₺'+Math.round(+v).toLocaleString('tr-TR');
+const fN=(v,d=1)=>v==null?'—':(+v).toLocaleString('tr-TR',{maximumFractionDigits:d});
+
+async function calc(){
+  const btn=$('calcBtn'); btn.disabled=true; btn.textContent='Hesaplanıyor…';
+  const body={
+    use_case:selUC, employees:+$('employees').value||1, ai_users:numOrNull('aiUsers'),
+    sector:$('sector').value, current_ai_spend_usd_month:+$('spend').value||0,
+    budget_usd:numOrNull('budget'), quality:$('quality').value,
+    usd_try:+$('usdtry').value||34, electricity_price_usd_per_kwh:+$('elec').value||0.12,
+  };
+  try{
+    const r=await fetch('/api/quick',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    render(await r.json());
+  }catch(e){ $('result').innerHTML=`<div class="verdict warn">Hata: ${e}</div>`; $('result').style.display='block'; }
+  btn.disabled=false; btn.textContent='Fizibiliteyi Göster →';
+}
+
+function render(d){
+  if(d.error){ $('result').innerHTML=`<div class="verdict warn">${d.error}</div>`; show(); return; }
+  const rec=d.recommendation, mid=d.scenarios.find(s=>s.name==='Orta')||d.scenarios[1], echo=d.inputs_echo;
+
+  // scenario cards
+  const scnHtml=d.scenarios.map(s=>{
+    const mid=s.name==='Orta';
+    return `<div class="scnc ${mid?'mid':''}">
+      <div class="nm">${s.name} kullanım ${mid?'<span class="tag">baz senaryo</span>':''}</div>
+      <table>
+        <tr><td class="muted">Aylık hacim</td><td>${s.volume_label}</td></tr>
+        <tr><td class="muted">Donanım</td><td>${s.hardware||'—'}</td></tr>
+        <tr><td class="muted">Yatırım</td><td>${fUSD(s.upfront_usd)}</td></tr>
+        <tr><td class="muted">Aylık işletme</td><td>${fUSD(s.local_opex_month_usd)}</td></tr>
+        <tr><td class="muted">Geri ödeme</td><td>${s.payback_months?fN(s.payback_months,0)+' ay':'—'}</td></tr>
+      </table></div>`;
+  }).join('');
+
+  // comparison
+  const paths=d.comparison.paths||[];
+  const best=paths.reduce((a,b)=>b.tco_usd<a.tco_usd?b:a,paths[0]||{});
+  const cmpRows=paths.map(p=>`<tr class="${p.key===best.key?'best':''}">
+      <td>${p.label}${p.key===best.key?' <span class="pill">en ucuz 36 ay</span>':''}<div class="muted" style="font-size:11.5px">${p.note}</div></td>
+      <td class="num">${fUSD(p.monthly_usd)}</td><td class="num">${fUSD(p.upfront_usd)}</td>
+      <td class="num">${fUSD(p.tco_usd)}<div class="muted" style="font-weight:400;font-size:11px">${fTRY(p.tco_try)}</div></td>
+    </tr>`).join('');
+
+  const annual=rec.annual_saving_usd;
+  $('result').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="muted" style="font-size:13px">${echo.use_case} · ${echo.sector} · ${echo.ai_users} kullanıcı · ${echo.recommended_model}</div>
+      <span class="again" onclick="restart()">↺ Baştan hesapla</span>
+    </div>
+    ${d.privacy_note?`<div class="privacy">🔒 ${d.privacy_note}</div>`:''}
+    <div class="verdict ${rec.tone==='good'?'good':'warn'}">
+      <h3>${rec.headline}</h3>
+      <div class="detail">${rec.detail||''}</div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="k">Önerilen Yatırım</div><div class="v">${fUSD(mid.upfront_usd)}</div><div class="s">${fTRY(mid.upfront_try)} · donanım + sunucu</div></div>
+      <div class="kpi"><div class="k">Geri Ödeme</div><div class="v ${mid.payback_months&&mid.payback_months<=24?'good':'warn'}">${mid.payback_months?fN(mid.payback_months,0):'—'} <small>ay</small></div><div class="s">mevcut ${fUSD(mid.baseline_month_usd)}/ay gidere göre</div></div>
+      <div class="kpi"><div class="k">Aylık Tasarruf</div><div class="v ${mid.monthly_saving_usd>0?'good':'bad'}">${fUSD(mid.monthly_saving_usd)}</div><div class="s">${mid.monthly_saving_try!=null?fTRY(mid.monthly_saving_try)+'/ay':''}</div></div>
+      <div class="kpi"><div class="k">Yıllık Tasarruf</div><div class="v ${annual>0?'good':'bad'}">${fUSD(annual)}</div><div class="s">${annual?fTRY(annual*(+$('usdtry').value||34)):''}</div></div>
+    </div>
+
+    <div class="block">
+      <h4>Üç yol, 36 aylık toplam maliyet</h4>
+      <table class="cmp">
+        <tr><th>Yol</th><th style="text-align:right">Aylık</th><th style="text-align:right">Peşin</th><th style="text-align:right">36 Ay Toplam</th></tr>
+        ${cmpRows}
+      </table>
+      <div class="chartwrap" style="margin-top:18px"><canvas id="cmpChart"></canvas></div>
+    </div>
+
+    <div class="block">
+      <h4>Kullanım senaryoları</h4>
+      <p class="muted" style="margin:-6px 0 14px;font-size:12.5px">Ekip AI'ı az mı yoksa yoğun mu kullanır bilinmez; üç ihtimali de gösteriyoruz. Donanım her senaryoda o hacmi karşılayacak şekilde boyutlandı.</p>
+      <div class="scn">${scnHtml}</div>
+    </div>
+
+    <p class="muted" style="font-size:12px;text-align:center;margin-top:10px">
+      Bu bir analitik tahmindir; fiyatlar yaklaşık liste değerleridir. Detaylı teknik parametreler için
+      <a href="/pro" style="color:var(--accent)">Pro modu</a> kullanın.
+    </p>`;
+  show();
+  drawCmp(paths);
+}
+
+function show(){ $('wizard').style.display='none'; $('result').style.display='block'; window.scrollTo({top:0,behavior:'smooth'}); }
+function restart(){ $('result').style.display='none'; $('wizard').style.display='block'; go(1); }
+
+function drawCmp(paths){
+  const ctx=$('cmpChart'); if(!ctx) return; if(chart) chart.destroy();
+  chart=new Chart(ctx,{type:'bar',
+    data:{labels:paths.map(p=>p.label.replace(' (önerilen)','').replace(' (token başına)','')),
+      datasets:[
+        {label:'Peşin yatırım',data:paths.map(p=>p.upfront_usd),backgroundColor:'#6ea0ff'},
+        {label:'36 ay işletme',data:paths.map(p=>p.tco_usd-p.upfront_usd),backgroundColor:'#38d39f'},
+      ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#93a0b2',boxWidth:12}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+': $'+Math.round(c.raw).toLocaleString('en-US')}}},
+      scales:{x:{stacked:true,ticks:{color:'#93a0b2'},grid:{display:false}},
+              y:{stacked:true,ticks:{color:'#93a0b2',callback:v=>'$'+(v/1000)+'k'},grid:{color:'#28323f'}}}}
+  });
+}
+
+boot();
+</script>
+</body>
+</html>

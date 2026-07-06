@@ -1,0 +1,12 @@
+# Render.com tek-tık deploy tanımı.
+# Kullanım: bu repoyu GitHub'a atın → Render'da "New +" → "Blueprint" → repoyu seçin.
+services:
+  - type: web
+    name: ai-fizibilite
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
