@@ -450,6 +450,22 @@ async function submitLead(){
   btn.disabled=false; btn.textContent='Talebimi gönder';
 }
 
+function drawCmp(paths){
+  const ctx=$('cmpChart'); if(!ctx) return; if(chart) chart.destroy();
+  chart=new Chart(ctx,{type:'bar',
+    data:{labels:paths.map(p=>p.label.replace(' (token başına)','')),
+      datasets:[
+        {label:'Peşin yatırım',data:paths.map(p=>p.upfront_usd),backgroundColor:'#6ea0ff'},
+        {label:'36 ay işletme',data:paths.map(p=>p.tco_usd-p.upfront_usd),backgroundColor:'#38d39f'},
+      ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#93a0b2',boxWidth:12}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+': $'+Math.round(c.raw).toLocaleString('en-US')}}},
+      scales:{x:{stacked:true,ticks:{color:'#93a0b2'},grid:{display:false}},
+              y:{stacked:true,ticks:{color:'#93a0b2',callback:v=>'$'+(v/1000)+'k'},grid:{color:'#28323f'}}}}
+  });
+}
+
 boot();
 </script>
 </body>
