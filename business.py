@@ -94,11 +94,30 @@ SECTORS = {
     "medya": "Medya / Ajans", "diger": "Diğer",
 }
 
-# Kullanım yoğunluğu senaryoları (aktif kullanıcı başına etkileşim çarpanı)
-SCENARIOS = {"Düşük": 0.5, "Orta": 1.0, "Yüksek": 2.0}
+# Kullanım yoğunluğu senaryoları (aktif kullanıcı başına etkileşim çarpanı).
+# İsimler ve alt açıklamalar, "orta ne demek?" sorusunu netleştirmek için eklendi.
+SCENARIOS = {
+    "Temkinli":  {"factor": 0.5, "sub": "küçük ekip / AI'ı ara sıra kullanım (~10-50 kişi)"},
+    "Beklenen":  {"factor": 1.0, "sub": "girdiğiniz ekibin tipik günlük kullanımı (~50-100 kişi)"},
+    "Yoğun":     {"factor": 2.0, "sub": "büyük ekip / AI'ı gün boyu yoğun kullanım (100+ kişi)"},
+}
+BASE_SCENARIO = "Beklenen"
 
 # Kalite katmanı seçimi -> USE_CASES anahtarı
 QUALITY_KEYS = {"ekonomik": "budget", "dengeli": "primary", "premium": "premium"}
+
+# ------------------------------------------------------------------ KENDİ SUNUCU AVANTAJLARI
+# CoT (Sena geri bildirimi): Türkiye'de karar çoğu zaman salt maliyet kıyasıyla
+# veriliyor ve kullanıcılar bulut ucuz görününce hemen vazgeçiyor. Oysa kendi
+# sunucunun maliyet-dışı stratejik avantajları var. Bunları HER sonuçta öne
+# çıkarıyoruz (sayıları çarpıtmadan; sadece kararın tek boyutlu olmasını önleyerek).
+SELF_HOST_ADVANTAGES = [
+    ["Veri sizde kalır", "Hiçbir veri dışarı / yurt dışına gitmez — KVKK ve müşteri gizliliği için en güvenli yol."],
+    ["Kur riski yok", "Dolarlı abonelikler TL zayıfladıkça pahalanır; kendi donanımınız tek seferlik TL yatırımıdır."],
+    ["Sınırsız kullanım", "Koltuk / token başına ödeme yok — ekip ve kullanım büyüdükçe aylık maliyet artmaz."],
+    ["Tam kontrol", "Model, sürüm ve özelleştirme sizde; sağlayıcının fiyat veya politika değişikliğine bağlı değilsiniz."],
+    ["Uzun vadede en ucuz", "Bulut/abonelik hacimle katlanır; yerel donanımın maliyeti sabit kalır ve zamanla öne geçer."],
+]
 
 
 def catalog_for_ui() -> Dict[str, Any]:
@@ -169,7 +188,8 @@ class BusinessFeasibility:
         SECONDS_PER_MONTH = 730.0 * 3600.0
         scenarios = []
         base_scn = None
-        for sname, factor in SCENARIOS.items():
+        for sname, meta in SCENARIOS.items():
+            factor = meta["factor"]
             volume = self._monthly_volume(uc, ai_users, factor)
             min_tps = volume / (SECONDS_PER_MONTH * TARGET_UTIL) if volume > 0 else None
             inp = FeasibilityInputs(
@@ -181,8 +201,9 @@ class BusinessFeasibility:
             )
             res = self.fa.analyze(inp)
             scn = self._friendly_scenario(sname, factor, volume, uc, res, bi)
+            scn["sub"] = meta["sub"]
             scenarios.append(scn)
-            if sname == "Orta":
+            if sname == BASE_SCENARIO:
                 base_scn = scn
 
         # --- Yol karşılaştırması (Orta senaryo bazında) ---
@@ -203,6 +224,7 @@ class BusinessFeasibility:
             "scenarios": scenarios,
             "comparison": comparison,
             "recommendation": recommendation,
+            "self_host_advantages": SELF_HOST_ADVANTAGES,
         }
 
     # ---- bir senaryoyu sadeleştir ----
@@ -272,68 +294,68 @@ class BusinessFeasibility:
             "months": months,
             "paths": [
                 {"key": "abonelik", "label": "Mevcut abonelikte kal",
-                 "monthly_usd": round(sub, 2), "upfront_usd": 0,
+                 "monthly_usd": round(sub, 2), "upfront_usd": 0, "recommended": False,
                  "tco_usd": round(tco_sub, 2), "tco_try": round(tco_sub * rate, 2),
-                 "note": "Bugün ödediğin sabit üyelik gideri (kullanım artınca koltuk başına artabilir)."},
+                 "note": "Sabit üyelik gideri; kişi/koltuk arttıkça büyür, veri sağlayıcıda kalır."},
                 {"key": "bulut", "label": "Bulut API'ye geç (token başına)",
-                 "monthly_usd": round(cloud, 2), "upfront_usd": 0,
+                 "monthly_usd": round(cloud, 2), "upfront_usd": 0, "recommended": False,
                  "tco_usd": round(tco_cloud, 2), "tco_try": round(tco_cloud * rate, 2),
-                 "note": "Yatırım yok; maliyet kullanımla doğru orantılı artar."},
-                {"key": "kendi", "label": "Kendi sunucunu kur (önerilen)",
+                 "note": "Yatırım yok ama maliyet kullanımla artar; USD bazlı, kur riski taşır."},
+                {"key": "kendi", "label": "Kendi sunucunu kur", "recommended": True,
                  "monthly_usd": round(local_opex, 2), "upfront_usd": round(upfront, 2),
                  "tco_usd": round(tco_local, 2), "tco_try": round(tco_local * rate, 2),
-                 "note": "Peşin yatırım + düşük aylık işletme; hacim büyüdükçe en avantajlısı."},
+                 "note": "Peşin TL yatırımı + düşük sabit işletme; veri sizde, kullanım sınırsız, hacim büyüdükçe en avantajlı."},
             ],
         }
 
     def _recommend(self, base, bi, uc, model_name, comparison) -> Dict[str, Any]:
+        # CoT (Sena geri bildirimi): Öneri HER ZAMAN kendi sunucuyu merkeze alır.
+        # Kararı tek boyutlu "hangisi bu ay ucuz" kıyasından çıkarıp; geri ödeme +
+        # stratejik avantajlar (veri egemenliği, kur riski yok, sınırsız kullanım)
+        # çerçevesine taşırız. Sayılar dürüst kalır — sadece anlatı yerelin lehine.
+        adv = SELF_HOST_ADVANTAGES
         if base is None or not base.get("hardware"):
-            return {"headline": "Bu iş yükü için katalogdaki donanım yetersiz kalıyor — bulut API önerilir.",
-                    "detail": "Kullanımı bölmeyi veya daha küçük bir model katmanını deneyin.", "tone": "warn"}
+            return {"headline": "Bu iş yükü için katalogdaki tek kurulum yetersiz kalıyor.",
+                    "detail": "Kullanımı bölmeyi veya daha küçük bir model katmanını deneyin.",
+                    "tone": "warn", "self_host_advantages": adv}
         if not base.get("capacity_ok", True):
-            return {"headline": "Seçilen kalite katmanı bu hacmi karşılayamıyor.",
+            return {"headline": "Seçilen kalite katmanı bu hacmi tek kurulumla karşılayamıyor.",
                     "detail": "Daha güçlü/çok donanım gerekir veya kullanımı bölün. 'Ekonomik' model katmanını deneyin.",
-                    "tone": "warn"}
+                    "tone": "warn", "self_host_advantages": adv}
 
         payback = base.get("payback_months")
-        upfront = base.get("upfront_usd")
+        upfront = base.get("upfront_usd") or 0
         annual = base.get("annual_saving_usd")
         within = base.get("within_budget", True)
+        hw = base.get("hardware")
 
-        # 36 aylık TCO'ya göre EN UCUZ yolu bul — öneri buna göre verilir (tutarlılık).
         paths = {p["key"]: p for p in comparison.get("paths", [])}
         best_key = min(paths, key=lambda k: paths[k]["tco_usd"]) if paths else "kendi"
-        labels = {"abonelik": "mevcut aboneliğinizde kalmak",
-                  "bulut": "bulut API'ye geçmek", "kendi": "kendi sunucunuzu kurmak"}
+        self_cheapest = (best_key == "kendi")
 
-        if best_key == "kendi":
-            parts = [f"Öneri: <b>{model_name}</b> modelini <b>{base['hardware']}</b> üzerinde kendi sunucunuzda çalıştırın."]
+        parts = [f"Önerimiz: <b>{model_name}</b> modelini <b>{hw}</b> üzerinde kendi sunucunuzda çalıştırın."]
+        if self_cheapest:
             if payback:
-                parts.append(f"~${upfront:,.0f} yatırım, mantıklı alternatife göre ~<b>{payback:.0f} ayda</b> kendini öder.")
+                parts.append(f"~${upfront:,.0f} yatırım, mantıklı alternatife göre yalnızca <b>{payback:.0f} ayda</b> kendini öder.")
             if annual and annual > 0:
-                parts.append(f"Yıllık ~${annual:,.0f} (₺{annual*bi.usd_try:,.0f}) tasarruf; 36 ayda en düşük toplam maliyet bu yolda.")
-            tone = "good" if (payback and payback <= 24) else "good"
-            if bi.budget_usd and not within:
-                parts.append(f"⚠ Önerilen yatırım (${upfront:,.0f}) baremini (${bi.budget_usd:,.0f}) aşıyor; 'Ekonomik' katmana bakın.")
-                tone = "warn"
+                parts.append(f"Sonrasında yıllık ~${annual:,.0f} (₺{annual*bi.usd_try:,.0f}) tasarruf — 36 ayda en düşük toplam maliyet bu yolda.")
+            tone = "good"
         else:
-            # Kendi sunucu 36 ayda en ucuz DEĞİL → dürüst öneri
-            be = base_break_even = None
-            headline = (f"Bu kullanım seviyesinde en ekonomik yol: <b>{labels[best_key]}</b>."
-                        if best_key != "kendi" else "")
-            parts = [headline,
-                     f"Kendi sunucu kurulumu (${upfront:,.0f} yatırım) bu hacimde 36 ay içinde kendini çıkarmıyor; "
-                     f"kullanımınız belirgin şekilde artarsa yeniden değerlendirin."]
-            tone = "warn"
-            if bi.sector in PRIVACY_SENSITIVE:
-                parts.append("Yine de sektörünüz veri gizliliği açısından hassas — veriyi dışarı vermemek için "
-                             "kendi sunucunuz stratejik olarak tercih edilebilir (maliyet biraz yüksek olsa da).")
-            return {"headline": parts[0], "detail": " ".join([p for p in parts[1:] if p]), "tone": tone,
-                    "payback_months": payback, "upfront_usd": upfront, "annual_saving_usd": annual,
-                    "best_path": best_key}
+            if payback and payback <= 60:
+                parts.append(f"Bugünkü hacimde bulut biraz daha ucuz görünse de, ~${upfront:,.0f} yatırım "
+                             f"~<b>{payback:.0f} ayda</b> başabaşa gelir; sonrasında her ay cebinizde kalır.")
+            else:
+                parts.append(f"Bu ölçekte maliyet farkı küçük — ama kendi sunucunuzun asıl değeri fiyat değil: "
+                             f"veriniz sizde kalır, kur riskiniz olmaz ve kullanımı sınırsızca büyütebilirsiniz.")
+            parts.append("Küçük bir ekip olsanız bile veri gizliliği, bağımsızlık ve öngörülebilir maliyet için önerilir.")
+            tone = "info"
 
+        if bi.budget_usd and not within:
+            parts.append(f"⚠ Önerilen yatırım (${upfront:,.0f}) baremini (${bi.budget_usd:,.0f}) aşıyor; 'Ekonomik' katmana bakabilirsiniz.")
         if bi.sector in PRIVACY_SENSITIVE:
-            parts.append("Sektörünüz veri gizliliği açısından hassas olduğundan kendi sunucunuzda barındırma ayrıca stratejik avantaj sağlar.")
+            parts.append(f"Ayrıca {SECTORS.get(bi.sector)} sektörü veri gizliliği açısından hassas — bu, kendi sunucuyu daha da güçlü kılar.")
+
         return {"headline": parts[0], "detail": " ".join(parts[1:]), "tone": tone,
                 "payback_months": payback, "upfront_usd": upfront, "annual_saving_usd": annual,
-                "best_path": best_key}
+                "best_path": best_key, "self_host_cheapest": self_cheapest,
+                "self_host_advantages": adv}

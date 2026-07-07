@@ -57,7 +57,15 @@
   #result{display:none}
   .verdict{border-radius:16px;padding:22px 26px;margin-bottom:22px;border:1px solid;font-size:15px;line-height:1.6}
   .verdict.good{background:rgba(56,211,159,.09);border-color:rgba(56,211,159,.35)}
+  .verdict.info{background:rgba(110,160,255,.10);border-color:rgba(110,160,255,.38)}
   .verdict.warn{background:rgba(245,179,66,.09);border-color:rgba(245,179,66,.35)}
+  .adv{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
+  .advc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .advc .h{font-weight:680;font-size:13.5px;color:var(--text);margin-bottom:5px;display:flex;align-items:center;gap:8px}
+  .advc .h::before{content:'';width:9px;height:9px;border-radius:50%;background:var(--good);flex:none}
+  .advc .d{color:var(--muted);font-size:12px;line-height:1.4}
+  table.cmp tr.rec{background:rgba(56,211,159,.11)}
+  .recbadge{display:inline-block;font-size:10.5px;padding:2px 9px;border-radius:20px;background:var(--good);color:#062018;font-weight:700;margin-left:6px}
   .verdict h3{margin:0 0 8px;font-size:19px}
   .verdict .detail{color:var(--muted);font-size:13.5px}
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:22px}
@@ -208,13 +216,14 @@ async function calc(){
 
 function render(d){
   if(d.error){ $('result').innerHTML=`<div class="verdict warn">${d.error}</div>`; show(); return; }
-  const rec=d.recommendation, mid=d.scenarios.find(s=>s.name==='Orta')||d.scenarios[1], echo=d.inputs_echo;
+  const rec=d.recommendation, mid=d.scenarios.find(s=>s.name==='Beklenen')||d.scenarios[1], echo=d.inputs_echo;
 
   // scenario cards
   const scnHtml=d.scenarios.map(s=>{
-    const mid=s.name==='Orta';
-    return `<div class="scnc ${mid?'mid':''}">
-      <div class="nm">${s.name} kullanım ${mid?'<span class="tag">baz senaryo</span>':''}</div>
+    const isBase=s.name==='Beklenen';
+    return `<div class="scnc ${isBase?'mid':''}">
+      <div class="nm">${s.name} ${isBase?'<span class="tag">baz senaryo</span>':''}</div>
+      <div class="muted" style="font-size:11px;margin:3px 0 4px">${s.sub||''}</div>
       <table>
         <tr><td class="muted">Aylık hacim</td><td>${s.volume_label}</td></tr>
         <tr><td class="muted">Donanım</td><td>${s.hardware||'—'}</td></tr>
@@ -224,14 +233,17 @@ function render(d){
       </table></div>`;
   }).join('');
 
-  // comparison
+  // comparison — önerilen (kendi sunucu) yolu vurgulanır
   const paths=d.comparison.paths||[];
   const best=paths.reduce((a,b)=>b.tco_usd<a.tco_usd?b:a,paths[0]||{});
-  const cmpRows=paths.map(p=>`<tr class="${p.key===best.key?'best':''}">
-      <td>${p.label}${p.key===best.key?' <span class="pill">en ucuz 36 ay</span>':''}<div class="muted" style="font-size:11.5px">${p.note}</div></td>
+  const cmpRows=paths.map(p=>`<tr class="${p.recommended?'rec':''}">
+      <td>${p.label}${p.recommended?' <span class="recbadge">ÖNERİMİZ</span>':''}${p.key===best.key&&!p.recommended?' <span class="pill">36 ayda en ucuz</span>':''}<div class="muted" style="font-size:11.5px">${p.note}</div></td>
       <td class="num">${fUSD(p.monthly_usd)}</td><td class="num">${fUSD(p.upfront_usd)}</td>
       <td class="num">${fUSD(p.tco_usd)}<div class="muted" style="font-weight:400;font-size:11px">${fTRY(p.tco_try)}</div></td>
     </tr>`).join('');
+
+  // kendi sunucu avantajları
+  const advHtml=(d.self_host_advantages||[]).map(a=>`<div class="advc"><div class="h">${a[0]}</div><div class="d">${a[1]}</div></div>`).join('');
 
   const annual=rec.annual_saving_usd;
   $('result').innerHTML=`
@@ -240,7 +252,7 @@ function render(d){
       <span class="again" onclick="restart()">↺ Baştan hesapla</span>
     </div>
     ${d.privacy_note?`<div class="privacy">🔒 ${d.privacy_note}</div>`:''}
-    <div class="verdict ${rec.tone==='good'?'good':'warn'}">
+    <div class="verdict ${rec.tone||'info'}">
       <h3>${rec.headline}</h3>
       <div class="detail">${rec.detail||''}</div>
     </div>
@@ -249,6 +261,12 @@ function render(d){
       <div class="kpi"><div class="k">Geri Ödeme</div><div class="v ${mid.payback_months&&mid.payback_months<=24?'good':'warn'}">${mid.payback_months?fN(mid.payback_months,0):'—'} <small>ay</small></div><div class="s">mevcut ${fUSD(mid.baseline_month_usd)}/ay gidere göre</div></div>
       <div class="kpi"><div class="k">Aylık Tasarruf</div><div class="v ${mid.monthly_saving_usd>0?'good':'bad'}">${fUSD(mid.monthly_saving_usd)}</div><div class="s">${mid.monthly_saving_try!=null?fTRY(mid.monthly_saving_try)+'/ay':''}</div></div>
       <div class="kpi"><div class="k">Yıllık Tasarruf</div><div class="v ${annual>0?'good':'bad'}">${fUSD(annual)}</div><div class="s">${annual?fTRY(annual*(+$('usdtry').value||34)):''}</div></div>
+    </div>
+
+    <div class="block">
+      <h4>Neden kendi sunucunuz? — sadece fiyat değil</h4>
+      <p class="muted" style="margin:-6px 0 14px;font-size:12.5px">Karar çoğu zaman sadece "bu ay hangisi ucuz" diye veriliyor. Oysa kendi sunucunuzun maliyet-dışı avantajları, küçük ekiplerde bile onu öne çıkarır:</p>
+      <div class="adv">${advHtml}</div>
     </div>
 
     <div class="block">
@@ -262,7 +280,7 @@ function render(d){
 
     <div class="block">
       <h4>Kullanım senaryoları</h4>
-      <p class="muted" style="margin:-6px 0 14px;font-size:12.5px">Ekip AI'ı az mı yoksa yoğun mu kullanır bilinmez; üç ihtimali de gösteriyoruz. Donanım her senaryoda o hacmi karşılayacak şekilde boyutlandı.</p>
+      <p class="muted" style="margin:-6px 0 14px;font-size:12.5px"><b>Beklenen</b> = girdiğiniz ekibin tipik kullanımı (baz senaryo). Ekip AI'ı daha az veya daha yoğun kullanırsa diye alt/üst ihtimalleri de gösteriyoruz. Donanım her senaryoda o hacmi karşılayacak şekilde boyutlandırıldı.</p>
       <div class="scn">${scnHtml}</div>
     </div>
 
