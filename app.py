@@ -20,7 +20,9 @@ Uç noktalar:
 from __future__ import annotations
 
 import os
-from typing import Optional
+import json
+import time
+from typing import Optional, Any, Dict
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
@@ -115,6 +117,34 @@ def api_usecases():
 def api_quick(req: QuickRequest):
     bi = BusinessInputs(**req.model_dump())
     return JSONResponse(BUSINESS.analyze(bi))
+
+
+LEADS_FILE = os.path.join(BASE_DIR, "leads.jsonl")
+
+
+class LeadRequest(BaseModel):
+    name: str
+    company: Optional[str] = ""
+    email: str
+    phone: Optional[str] = ""
+    message: Optional[str] = ""
+    context: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/lead")
+def api_lead(req: LeadRequest):
+    """Kullanıcı talebini kaydeder. Not: Railway dosya sistemi kalıcı değildir;
+    bu yüzden talep ayrıca sunucu loglarına da yazılır (oradan kaçırılmaz).
+    İleride e-posta / CRM webhook'una bağlanabilir."""
+    rec = req.model_dump()
+    rec["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open(LEADS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    print("=== YENİ TALEP ===", json.dumps(rec, ensure_ascii=False), flush=True)
+    return {"ok": True, "message": "Talebiniz alındı. En kısa sürede sizinle iletişime geçeceğiz."}
 
 
 @app.get("/")
