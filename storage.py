@@ -165,39 +165,91 @@ NOTIFY_TO = _env("NOTIFY_TO", "ADMIN_EMAIL", "NOTIFY_EMAIL") or SMTP_USER
 NOTIFY_FROM = _env("NOTIFY_FROM") or SMTP_USER
 
 
+# --- HTTPS e-posta sağlayıcısı (Resend) ---
+# CoT: Railway (ve birçok PaaS) giden SMTP portlarını (25/465/587) engeller —
+# bu durumda smtplib "[Errno 101] Network is unreachable" verir. HTTPS (443)
+# hiçbir zaman engellenmediği için, RESEND_API_KEY tanımlıysa e-postayı
+# Resend HTTP API'si üzerinden göndeririz. SMTP yedek olarak korunur.
+RESEND_API_KEY = _env("RESEND_API_KEY")
+MAIL_FROM = _env("MAIL_FROM", "NOTIFY_FROM") or "AI Fizibilite <onboarding@resend.dev>"
+
+
+def email_provider() -> str:
+    if RESEND_API_KEY and NOTIFY_TO:
+        return "resend"
+    if all([SMTP_HOST, SMTP_USER, SMTP_PASS, NOTIFY_TO]):
+        return "smtp"
+    return "none"
+
+
 def email_configured() -> bool:
-    return all([SMTP_HOST, SMTP_USER, SMTP_PASS, NOTIFY_TO])
+    return email_provider() != "none"
+
+
+def _send_via_resend(subject: str, body: str, reply_to: str = "") -> str:
+    import urllib.error
+    import urllib.request
+    payload: Dict[str, Any] = {"from": MAIL_FROM, "to": [NOTIFY_TO],
+                               "subject": subject, "text": body}
+    if reply_to:
+        payload["reply_to"] = reply_to
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"), method="POST",
+        headers={"Authorization": f"Bearer {RESEND_API_KEY}",
+                 "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            if r.status in (200, 201):
+                return "gönderildi"
+            return f"hata: HTTP {r.status}"
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:200]
+        return f"hata: HTTP {e.code} — {detail}"
+    except Exception as e:
+        return f"hata: {e}"
 
 
 def notify_email(rec: Dict[str, Any]) -> str:
     """Yeni talep gelince bildirim e-postası atar. Yapılandırılmamışsa atlar.
     Asla exception fırlatmaz — istek akışını bozmaz."""
-    if not email_configured():
-        return "atlandı (SMTP yapılandırılmamış)"
+    provider = email_provider()
+    if provider == "none":
+        return "atlandı (e-posta yapılandırılmamış)"
+
+    kind = "Rapor indirme" if rec.get("kind") == "rapor_indirme" else "Yeni talep"
+    subject = f"[AI Fizibilite] {kind}: {rec.get('name', '')} — {rec.get('company') or '-'}"
+    lines = [
+        f"Tür       : {kind}",
+        f"Ad Soyad  : {rec.get('name', '')}",
+        f"Şirket    : {rec.get('company', '') or '-'}",
+        f"E-posta   : {rec.get('email', '')}",
+        f"Telefon   : {rec.get('phone', '') or '-'}",
+        f"Mesaj     : {rec.get('message', '') or '-'}",
+        f"Zaman     : {rec.get('ts', '')}",
+    ]
+    ctx = rec.get("context") or {}
+    if ctx:
+        lines += ["", "--- Fizibilite bağlamı ---"]
+        for k, v in ctx.items():
+            lines.append(f"{k}: {v}")
+    body = "\n".join(lines)
+
+    if provider == "resend":
+        res = _send_via_resend(subject, body, rec.get("email", ""))
+        if res != "gönderildi":
+            LOG.warning("Resend ile gönderilemedi: %s", res)
+        return res
+
     try:
-        kind = "Rapor indirme" if rec.get("kind") == "rapor_indirme" else "Yeni talep"
         msg = EmailMessage()
-        msg["Subject"] = f"[AI Fizibilite] {kind}: {rec.get('name', '')} — {rec.get('company') or '-'}"
+        msg["Subject"] = subject
         msg["From"] = NOTIFY_FROM
         msg["To"] = NOTIFY_TO
         if rec.get("email"):
             msg["Reply-To"] = rec["email"]
-
-        lines = [
-            f"Tür       : {kind}",
-            f"Ad Soyad  : {rec.get('name', '')}",
-            f"Şirket    : {rec.get('company', '') or '-'}",
-            f"E-posta   : {rec.get('email', '')}",
-            f"Telefon   : {rec.get('phone', '') or '-'}",
-            f"Mesaj     : {rec.get('message', '') or '-'}",
-            f"Zaman     : {rec.get('ts', '')}",
-        ]
-        ctx = rec.get("context") or {}
-        if ctx:
-            lines += ["", "--- Fizibilite bağlamı ---"]
-            for k, v in ctx.items():
-                lines.append(f"{k}: {v}")
-        msg.set_content("\n".join(lines))
+        msg.set_content(body)
 
         ctx_ssl = ssl.create_default_context()
         if SMTP_PORT == 465:
@@ -210,6 +262,11 @@ def notify_email(rec: Dict[str, Any]) -> str:
                 s.login(SMTP_USER, SMTP_PASS)
                 s.send_message(msg)
         return "gönderildi"
+    except OSError as e:
+        # Railway/PaaS ortamlarında giden SMTP portları genelde kapalıdır.
+        LOG.warning("SMTP ile gönderilemedi: %s", e)
+        return (f"hata: {e} — Bu ortamda giden SMTP portu (25/465/587) engelleniyor olabilir. "
+                f"RESEND_API_KEY tanımlayıp HTTPS üzerinden göndermeyi deneyin.")
     except Exception as e:
         LOG.warning("E-posta gönderilemedi: %s", e)
         return f"hata: {e}"
@@ -248,7 +305,9 @@ def status() -> Dict[str, Any]:
         "database_detail": detail,
         "lead_count": lead_count,
         "email_configured": email_configured(),
+        "email_provider": email_provider(),   # resend | smtp | none
         "notify_to": NOTIFY_TO or None,
+        "resend_key_set": bool(RESEND_API_KEY),
         # Hangi parçanın eksik olduğunu gösterir (değerleri sızdırmadan)
         "smtp": {
             "host": bool(SMTP_HOST),
