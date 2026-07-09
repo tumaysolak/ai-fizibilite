@@ -94,12 +94,15 @@ SECTORS = {
     "medya": "Medya / Ajans", "diger": "Diğer",
 }
 
-# Kullanım yoğunluğu senaryoları (aktif kullanıcı başına etkileşim çarpanı).
-# İsimler ve alt açıklamalar, "orta ne demek?" sorusunu netleştirmek için eklendi.
+# Benimseme senaryoları. Çarpan doğrudan AKTİF KULLANICI SAYISINI ölçekler
+# (hacim = kullanıcı × etkileşim × token × iş günü olduğundan, çarpan matematiksel
+# olarak kullanıcı sayısı çarpanına eşittir). Bu yüzden senaryolar soyut bir
+# "yoğunluk" değil, GERÇEK KULLANICI SAYISI olarak gösterilir — kullanıcı kendi
+# girdiği sayıyı (Beklenen) doğrudan görür ve öneri o sayıya göre yapılır.
 SCENARIOS = {
-    "Temkinli":  {"factor": 0.5, "sub": "küçük ekip / AI'ı ara sıra kullanım (~10-50 kişi)"},
-    "Beklenen":  {"factor": 1.0, "sub": "girdiğiniz ekibin tipik günlük kullanımı (~50-100 kişi)"},
-    "Yoğun":     {"factor": 2.0, "sub": "büyük ekip / AI'ı gün boyu yoğun kullanım (100+ kişi)"},
+    "Temkinli":  {"factor": 0.5, "sub": "pilot ekip / sınırlı benimseme"},
+    "Beklenen":  {"factor": 1.0, "sub": "girdiğiniz kullanıcı sayısı — baz alınan senaryo"},
+    "Yoğun":     {"factor": 2.0, "sub": "kullanım tüm ekibe yayılırsa"},
 }
 BASE_SCENARIO = "Beklenen"
 
@@ -202,6 +205,9 @@ class BusinessFeasibility:
             res = self.fa.analyze(inp)
             scn = self._friendly_scenario(sname, factor, volume, uc, res, bi)
             scn["sub"] = meta["sub"]
+            # Senaryonun karşılık geldiği GERÇEK kullanıcı sayısı (çarpan = kullanıcı çarpanı)
+            scn["users"] = max(1, round(ai_users * factor))
+            scn["is_base"] = (sname == BASE_SCENARIO)
             scenarios.append(scn)
             if sname == BASE_SCENARIO:
                 base_scn = scn
@@ -214,6 +220,7 @@ class BusinessFeasibility:
             "inputs_echo": {
                 "use_case": uc["label"], "unit": uc["unit"], "sector": SECTORS.get(bi.sector, bi.sector),
                 "employees": bi.employees, "ai_users": ai_users, "quality": bi.quality,
+                "adoption_pct": round(ai_users / max(bi.employees, 1) * 100),
                 "recommended_model": model_name,
                 "current_ai_spend_usd_month": bi.current_ai_spend_usd_month,
                 "budget_usd": bi.budget_usd,

@@ -25,7 +25,7 @@ import time
 from typing import Optional, Any, Dict
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -145,6 +145,98 @@ def api_lead(req: LeadRequest):
         pass
     print("=== YENİ TALEP ===", json.dumps(rec, ensure_ascii=False), flush=True)
     return {"ok": True, "message": "Talebiniz alındı. En kısa sürede sizinle iletişime geçeceğiz."}
+
+
+class ReportRequest(BaseModel):
+    """Kurumsal rapor indirme: kullanıcı bilgileri (lead) + analiz girdileri."""
+    name: str
+    email: str
+    company: Optional[str] = ""
+    phone: Optional[str] = ""
+    inputs: QuickRequest
+
+
+def _csv_escape(v: Any) -> str:
+    s = "" if v is None else str(v)
+    if any(c in s for c in [",", '"', "\n"]):
+        s = '"' + s.replace('"', '""') + '"'
+    return s
+
+
+def _row(*cells) -> str:
+    return ",".join(_csv_escape(c) for c in cells)
+
+
+def _build_csv(d: Dict[str, Any], lead: Dict[str, str]) -> str:
+    """Analiz sonucunu kurumsal raporlama için düz CSV veri setine çevirir.
+    Bölümler: Girdiler / Öneri / Yol karşılaştırması / Senaryolar."""
+    echo = d.get("inputs_echo", {})
+    rec = d.get("recommendation", {})
+    L: list[str] = []
+    L.append(_row("bolum", "alan", "deger", "birim"))
+
+    L.append(_row("Rapor", "olusturulma", time.strftime("%Y-%m-%d %H:%M:%S"), ""))
+    L.append(_row("Rapor", "talep_eden", lead.get("name", ""), ""))
+    L.append(_row("Rapor", "sirket", lead.get("company", ""), ""))
+    L.append(_row("Rapor", "eposta", lead.get("email", ""), ""))
+
+    for k, label in [("use_case", "kullanim_amaci"), ("sector", "sektor"),
+                     ("employees", "toplam_calisan"), ("ai_users", "ai_kullanici_sayisi"),
+                     ("adoption_pct", "benimseme_orani"), ("recommended_model", "onerilen_model"),
+                     ("current_ai_spend_usd_month", "mevcut_aylik_ai_harcamasi_usd")]:
+        L.append(_row("Girdiler", label, echo.get(k, ""), "%" if k == "adoption_pct" else ""))
+
+    L.append(_row("Oneri", "baslik", _strip_html(rec.get("headline", "")), ""))
+    L.append(_row("Oneri", "onerilen_yol", rec.get("best_path", ""), ""))
+    L.append(_row("Oneri", "yatirim_usd", rec.get("upfront_usd", ""), "USD"))
+    L.append(_row("Oneri", "geri_odeme", rec.get("payback_months", ""), "ay"))
+    L.append(_row("Oneri", "yillik_tasarruf_usd", rec.get("annual_saving_usd", ""), "USD"))
+
+    for p in d.get("comparison", {}).get("paths", []):
+        L.append(_row("Yol_36ay", p.get("label", ""), p.get("tco_usd", ""), "USD toplam"))
+        L.append(_row("Yol_36ay_aylik", p.get("label", ""), p.get("monthly_usd", ""), "USD/ay"))
+        L.append(_row("Yol_36ay_pesin", p.get("label", ""), p.get("upfront_usd", ""), "USD pesin"))
+
+    for s in d.get("scenarios", []):
+        n = s.get("name", "")
+        L.append(_row("Senaryo_kullanici", n, s.get("users", ""), "kisi"))
+        L.append(_row("Senaryo_hacim", n, s.get("monthly_volume", ""), "birim/ay"))
+        L.append(_row("Senaryo_donanim", n, s.get("hardware", ""), ""))
+        L.append(_row("Senaryo_yatirim", n, s.get("upfront_usd", ""), "USD"))
+        L.append(_row("Senaryo_aylik_isletme", n, s.get("local_opex_month_usd", ""), "USD/ay"))
+        L.append(_row("Senaryo_geri_odeme", n, s.get("payback_months", ""), "ay"))
+
+    return "\n".join(L) + "\n"
+
+
+def _strip_html(s: str) -> str:
+    import re
+    return re.sub(r"<[^>]+>", "", s or "")
+
+
+@app.post("/api/report")
+def api_report(req: ReportRequest):
+    """Kullanıcı bilgilerini kaydeder ve analiz sonucunu CSV veri seti olarak döner."""
+    lead = {"name": req.name, "email": req.email, "company": req.company, "phone": req.phone}
+    rec = dict(lead)
+    rec["kind"] = "rapor_indirme"
+    rec["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open(LEADS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    print("=== RAPOR İNDİRME TALEBİ ===", json.dumps(rec, ensure_ascii=False), flush=True)
+
+    bi = BusinessInputs(**req.inputs.model_dump())
+    result = BUSINESS.analyze(bi)
+    if result.get("error"):
+        return JSONResponse(result, status_code=400)
+
+    csv_text = _build_csv(result, lead)
+    fname = "ai-fizibilite-raporu.csv"
+    return Response(content="﻿" + csv_text, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @app.get("/")

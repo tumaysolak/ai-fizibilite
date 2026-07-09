@@ -96,6 +96,28 @@
   .toggle-adv{color:var(--accent);cursor:pointer;font-size:12px;margin-top:16px;display:inline-block}
   #advanced{display:none;margin-top:6px}
 
+  /* çalışan vs AI kullanıcı ayrımı */
+  .splitbox{display:grid;grid-template-columns:1fr 44px 1fr;gap:10px;align-items:center;margin-top:6px}
+  @media(max-width:720px){.splitbox{grid-template-columns:1fr}.sbarrow{display:none}}
+  .sb{background:var(--panel2);border:1px solid var(--line);border-radius:13px;padding:16px 18px}
+  .sb.hi{border-color:var(--accent);background:rgba(110,160,255,.07)}
+  .sbk{font-size:13px;color:var(--muted);margin-bottom:8px;font-weight:600}
+  .sb.hi .sbk{color:var(--text)}
+  .req{display:inline-block;font-size:10px;background:var(--accent);color:#081120;padding:2px 7px;border-radius:20px;font-weight:700;margin-left:5px;vertical-align:middle}
+  .sbarrow{text-align:center;color:var(--muted);font-size:20px}
+  .presets{display:flex;gap:6px;margin-top:9px}
+  .presets span{font-size:11.5px;padding:4px 10px;border-radius:20px;background:var(--panel);border:1px solid var(--line);cursor:pointer;color:var(--muted)}
+  .presets span:hover{border-color:var(--accent);color:var(--text)}
+
+  /* modal */
+  .modal{position:fixed;inset:0;background:rgba(4,7,12,.72);backdrop-filter:blur(4px);z-index:100;display:none;align-items:center;justify-content:center;padding:20px}
+  .modal.on{display:flex}
+  .modal .mc{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px;max-width:480px;width:100%;position:relative}
+  .modal .mc h3{margin:0 0 5px;font-size:19px}
+  .modal .x{position:absolute;top:16px;right:18px;color:var(--muted);cursor:pointer;font-size:20px;line-height:1}
+  .modal .x:hover{color:var(--text)}
+  .dlbtn{display:inline-flex;align-items:center;gap:8px}
+
   /* result */
   #result{display:none;margin-top:26px}
   .verdict{border-radius:16px;padding:22px 26px;margin-bottom:22px;border:1px solid;font-size:15px}
@@ -243,12 +265,27 @@
 
         <div class="step" id="step2">
           <h3 class="q">Ekibiniz ve sektörünüz</h3>
-          <p class="qsub">Kaç kişinin kullanacağı, işlenecek hacmi belirler.</p>
-          <div class="row3">
-            <div><label>Şirketteki toplam çalışan</label><input id="employees" type="number" value="100"></div>
-            <div><label>AI'ı kaç kişi kullanacak?</label><input id="aiUsers" type="number" placeholder="tahmini otomatik"><div class="hint">Boş bırakırsanız sektöre göre tahmin ederiz.</div></div>
-            <div><label>Sektör</label><select id="sector"></select></div>
+          <p class="qsub">Tüm şirket değil, <b>AI'ı fiilen kullanacak kişi sayısı</b> hesabı belirler. İkisini ayrı soruyoruz.</p>
+
+          <div class="splitbox">
+            <div class="sb">
+              <div class="sbk">Şirketteki toplam çalışan</div>
+              <input id="employees" type="number" value="100" oninput="syncAdoption()">
+              <div class="hint">Genel büyüklük — doğrudan hesaba girmez.</div>
+            </div>
+            <div class="sbarrow">→</div>
+            <div class="sb hi">
+              <div class="sbk">Bunların kaçı AI kullanacak? <span class="req">hesabın temeli</span></div>
+              <input id="aiUsers" type="number" placeholder="örn. 15" oninput="syncAdoption()">
+              <div class="presets">
+                <span onclick="setAdoption(0.10)">%10</span><span onclick="setAdoption(0.25)">%25</span>
+                <span onclick="setAdoption(0.50)">%50</span><span onclick="setAdoption(1.00)">Tümü</span>
+              </div>
+              <div class="hint" id="adoptHint">Boş bırakırsanız sektöre göre tahmin ederiz.</div>
+            </div>
           </div>
+
+          <label style="margin-top:18px">Sektör</label><select id="sector"></select>
           <div class="nav"><button class="btn btn-ghost btn-sm" onclick="go(1)">← Geri</button><button class="btn btn-primary btn-sm" onclick="go(3)">Devam →</button></div>
         </div>
 
@@ -305,6 +342,20 @@
   </div>
 </section>
 
+<!-- RAPOR İNDİRME MODALI -->
+<div class="modal" id="dlModal">
+  <div class="mc">
+    <span class="x" onclick="closeDl()">✕</span>
+    <h3>Kurumsal raporu indirin</h3>
+    <p class="muted" style="margin:0 0 4px;font-size:13px">Fizibilite sonuçlarınızı CSV veri seti olarak indirin (Excel / SQL'e aktarılabilir). Raporu size ulaştırabilmemiz için birkaç bilgi:</p>
+    <div class="row"><div><label>Ad Soyad *</label><input id="dname" placeholder="Adınız"></div><div><label>Şirket</label><input id="dcompany" placeholder="Şirketiniz"></div></div>
+    <div class="row"><div><label>E-posta *</label><input id="demail" type="email" placeholder="ornek@sirket.com"></div><div><label>Telefon</label><input id="dphone" placeholder="+90 ..."></div></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:18px" id="dlBtn" onclick="downloadReport()">📥 CSV raporu indir</button>
+    <div id="dlMsg" class="msgbox"></div>
+    <p class="muted" style="font-size:11.5px;margin-top:12px">Bilgileriniz yalnızca sizinle iletişim için kullanılır.</p>
+  </div>
+</div>
+
 <footer>
   <div class="wrap in">
     <div>© 2026 AI Fizibilite · BilimVirüsü mentorluk projesi</div>
@@ -314,7 +365,22 @@
 
 <script>
 const $=id=>document.getElementById(id);
-let USECASES=null, selUC=null, chart=null, lastCtx=null;
+let USECASES=null, selUC=null, chart=null, lastCtx=null, lastInputs=null;
+
+// çalışan vs AI kullanıcı ayrımı
+function syncAdoption(){
+  const emp=+$('employees').value||0, u=+$('aiUsers').value||0;
+  const h=$('adoptHint');
+  if(!u){ h.textContent='Boş bırakırsanız sektöre göre tahmin ederiz.'; return; }
+  if(!emp){ h.textContent=`${u} kişi AI kullanacak.`; return; }
+  h.innerHTML=`<b>${u}</b> / ${emp} kişi → benimseme oranı <b>%${Math.round(u/emp*100)}</b>. Tüm hesap bu ${u} kişi üzerinden yapılır.`;
+}
+function setAdoption(p){
+  const emp=+$('employees').value||0;
+  if(!emp) return;
+  $('aiUsers').value=Math.max(1,Math.round(emp*p));
+  syncAdoption();
+}
 
 async function boot(){
   const r=await fetch('/api/usecases'); USECASES=await r.json();
@@ -349,6 +415,7 @@ async function calc(){
     budget_usd:numOrNull('budget'), quality:$('quality').value,
     usd_try:+$('usdtry').value||34, electricity_price_usd_per_kwh:+$('elec').value||0.12,
   };
+  lastInputs=body;
   try{
     const r=await fetch('/api/quick',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     render(await r.json());
@@ -361,10 +428,11 @@ function render(d){
   const rec=d.recommendation, mid=d.scenarios.find(s=>s.name==='Beklenen')||d.scenarios[1], echo=d.inputs_echo;
 
   const scnHtml=d.scenarios.map(s=>{
-    const isBase=s.name==='Beklenen';
+    const isBase=s.is_base;
     return `<div class="scnc ${isBase?'mid':''}">
-      <div class="nm">${s.name} ${isBase?'<span class="tag">baz senaryo</span>':''}</div>
-      <div class="muted" style="font-size:11px;margin:3px 0 4px">${s.sub||''}</div>
+      <div class="nm">${s.name} ${isBase?'<span class="tag">sizin sayınız</span>':''}</div>
+      <div style="font-size:22px;font-weight:750;margin:6px 0 2px">${s.users} <span style="font-size:12px;font-weight:500;color:var(--muted)">kullanıcı</span></div>
+      <div class="muted" style="font-size:11px;margin:0 0 4px">${s.sub||''}</div>
       <table>
         <tr><td class="muted">Aylık hacim</td><td>${s.volume_label}</td></tr>
         <tr><td class="muted">Donanım</td><td>${s.hardware||'—'}</td></tr>
@@ -406,9 +474,14 @@ function render(d){
       <table class="cmp"><tr><th>Yol</th><th style="text-align:right">Aylık</th><th style="text-align:right">Peşin</th><th style="text-align:right">36 Ay Toplam</th></tr>${cmpRows}</table>
       <div class="chartwrap" style="margin-top:18px"><canvas id="cmpChart"></canvas></div>
     </div>
-    <div class="block"><h4>Kullanım senaryoları</h4>
-      <p class="muted" style="margin:-6px 0 14px;font-size:12.5px"><b>Beklenen</b> = girdiğiniz ekibin tipik kullanımı (baz senaryo). Daha az/çok kullanım ihtimallerini de gösteriyoruz; donanım her senaryoda o hacmi karşılayacak şekilde boyutlandı.</p>
+    <div class="block"><h4>Benimseme senaryoları — kaç kişi kullanırsa ne olur?</h4>
+      <p class="muted" style="margin:-6px 0 14px;font-size:12.5px">Öneri, <b>sizin girdiğiniz ${echo.ai_users} kullanıcı</b> (Beklenen) üzerinden yapıldı. Kullanım daha dar bir pilot ekiple başlarsa veya tüm ekibe yayılırsa ne olacağını da gösteriyoruz. Donanım her senaryoda o hacmi karşılayacak şekilde boyutlandı.</p>
       <div class="scn">${scnHtml}</div>
+    </div>
+    <div class="block" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div><div style="font-weight:680;font-size:15px">Kurumsal raporlama çıktısı</div>
+        <div class="muted" style="font-size:12.5px;margin-top:3px">Tüm sonuçları CSV veri seti olarak indirin — Excel'e veya SQL veritabanınıza doğrudan aktarılabilir.</div></div>
+      <button class="btn btn-ghost dlbtn" onclick="openDl()">📥 Raporu indir (CSV)</button>
     </div>
     <div class="result-cta">
       <div><div class="t">Bu kurulumu sizin için hayata geçirelim mi?</div><div class="d">Donanım, kurulum, güvenli yapılandırma ve destek — uçtan uca birlikte.</div></div>
@@ -448,6 +521,30 @@ async function submitLead(){
     ['lname','lcompany','lemail','lphone','lmsg'].forEach(i=>$(i).value='');
   }catch(e){ box.className='msgbox err'; box.textContent='Gönderilemedi, lütfen tekrar deneyin.'; }
   btn.disabled=false; btn.textContent='Talebimi gönder';
+}
+
+// ---- Kurumsal rapor indirme (bilgi toplayan pop-up) ----
+function openDl(){ if(!lastInputs){alert('Önce fizibiliteyi hesaplayın.');return;} $('dlMsg').className='msgbox'; $('dlModal').classList.add('on'); }
+function closeDl(){ $('dlModal').classList.remove('on'); }
+$('dlModal') && (document.getElementById('dlModal').onclick=e=>{ if(e.target.id==='dlModal') closeDl(); });
+
+async function downloadReport(){
+  const name=$('dname').value.trim(), email=$('demail').value.trim(), box=$('dlMsg');
+  if(!name||!email){ box.className='msgbox err'; box.textContent='Lütfen ad ve e-posta girin.'; return; }
+  const btn=$('dlBtn'); btn.disabled=true; btn.textContent='Hazırlanıyor…';
+  try{
+    const r=await fetch('/api/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      name, email, company:$('dcompany').value.trim(), phone:$('dphone').value.trim(), inputs:lastInputs,
+    })});
+    if(!r.ok) throw new Error('sunucu');
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='ai-fizibilite-raporu.csv';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    box.className='msgbox ok'; box.textContent='Raporunuz indirildi. Teşekkürler!';
+    setTimeout(closeDl,1600);
+  }catch(e){ box.className='msgbox err'; box.textContent='Rapor oluşturulamadı, tekrar deneyin.'; }
+  btn.disabled=false; btn.textContent='📥 CSV raporu indir';
 }
 
 function drawCmp(paths){
