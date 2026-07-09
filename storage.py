@@ -146,12 +146,23 @@ def list_leads(limit: int = 200) -> List[Dict[str, Any]]:
 
 
 # ------------------------------------------------------------------ E-POSTA
-SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or 587)
-SMTP_USER = os.environ.get("SMTP_USER", "").strip()
-SMTP_PASS = os.environ.get("SMTP_PASS", "")
-NOTIFY_TO = os.environ.get("NOTIFY_TO", "").strip()
-NOTIFY_FROM = os.environ.get("NOTIFY_FROM", "").strip() or SMTP_USER
+def _env(*names: str, default: str = "") -> str:
+    """İlk dolu olan ortam değişkenini döndürür (farklı isimlendirmelere tolerans)."""
+    for n in names:
+        v = os.environ.get(n, "")
+        if v and v.strip():
+            return v.strip()
+    return default
+
+
+SMTP_HOST = _env("SMTP_HOST")
+SMTP_PORT = int(_env("SMTP_PORT", default="587") or 587)
+SMTP_USER = _env("SMTP_USER", "SMTP_USERNAME", "SMTP_EMAIL")
+# Railway/agent kurulumlarında SMTP_PASSWORD adı da yaygın — ikisini de kabul et.
+SMTP_PASS = _env("SMTP_PASS", "SMTP_PASSWORD", "SMTP_APP_PASSWORD")
+# Bildirim adresi: NOTIFY_TO yoksa ADMIN_EMAIL, o da yoksa gönderen adresi.
+NOTIFY_TO = _env("NOTIFY_TO", "ADMIN_EMAIL", "NOTIFY_EMAIL") or SMTP_USER
+NOTIFY_FROM = _env("NOTIFY_FROM") or SMTP_USER
 
 
 def email_configured() -> bool:
@@ -238,4 +249,12 @@ def status() -> Dict[str, Any]:
         "lead_count": lead_count,
         "email_configured": email_configured(),
         "notify_to": NOTIFY_TO or None,
+        # Hangi parçanın eksik olduğunu gösterir (değerleri sızdırmadan)
+        "smtp": {
+            "host": bool(SMTP_HOST),
+            "port": SMTP_PORT,
+            "user": bool(SMTP_USER),
+            "password": bool(SMTP_PASS),
+            "recipient": bool(NOTIFY_TO),
+        },
     }

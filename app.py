@@ -162,6 +162,27 @@ def api_health():
     return storage.status()
 
 
+@app.get("/api/test-email")
+def api_test_email(token: str = ""):
+    """SMTP ayarlarını canlıda test eder: gerçekten mail atmayı dener ve
+    başarısızsa HATANIN KENDİSİNİ döner (loglara bakmaya gerek kalmaz)."""
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="ADMIN_TOKEN tanımlı değil; bu uç nokta kapalı.")
+    if token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Geçersiz token.")
+    if not storage.email_configured():
+        return {"ok": False, "email_configured": False,
+                "hint": "SMTP_HOST / SMTP_USER / SMTP_PASS(WORD) / NOTIFY_TO(ADMIN_EMAIL) değişkenlerini kontrol edin.",
+                "gorulen": {"host": bool(storage.SMTP_HOST), "user": bool(storage.SMTP_USER),
+                            "pass": bool(storage.SMTP_PASS), "to": storage.NOTIFY_TO or None}}
+    result = storage.notify_email({
+        "kind": "test", "name": "Test Gönderimi", "company": "AI Fizibilite",
+        "email": storage.NOTIFY_TO, "phone": "-", "message": "Bu bir SMTP test e-postasıdır.",
+        "ts": time.strftime("%Y-%m-%d %H:%M:%S"), "context": {"kaynak": "/api/test-email"},
+    })
+    return {"ok": result == "gönderildi", "sonuc": result, "gonderildi_adres": storage.NOTIFY_TO}
+
+
 @app.get("/api/leads")
 def api_leads(token: str = ""):
     """Gelen talepleri listeler. ADMIN_TOKEN tanımlıysa korumalıdır."""
