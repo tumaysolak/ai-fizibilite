@@ -54,12 +54,18 @@ def _startup():
           "AÇIK" if storage.email_configured() else "KAPALI (SMTP değişkenleri tanımlı değil)", flush=True)
 
 
+def _notify_and_log(rec: Dict[str, Any]) -> None:
+    """E-postayı gönderir ve SONUCU her durumda loglar (başarı da dahil)."""
+    result = storage.notify_email(rec)
+    print(f"[e-posta] sağlayıcı={storage.email_provider()} sonuç={result}", flush=True)
+
+
 def _record_lead(rec: Dict[str, Any], bg: BackgroundTasks) -> str:
     """Talebi kalıcı olarak kaydeder, e-postayı arka planda gönderir (isteği bekletmez)."""
     rec["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
     where = storage.save_lead(rec)
     print(f"=== YENİ KAYIT ({where}) ===", json.dumps(rec, ensure_ascii=False), flush=True)
-    bg.add_task(storage.notify_email, rec)
+    bg.add_task(_notify_and_log, rec)
     return where
 
 

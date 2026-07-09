@@ -193,11 +193,16 @@ def _send_via_resend(subject: str, body: str, reply_to: str = "") -> str:
                                "subject": subject, "text": body}
     if reply_to:
         payload["reply_to"] = reply_to
+    # NOT: Resend'in API'si Cloudflare arkasında. Python'ın varsayılan
+    # "Python-urllib/3.x" User-Agent'ı imza taramasına takılıp
+    # "HTTP 403 — error code: 1010" ile reddediliyor. Gerçek bir UA şart.
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=json.dumps(payload).encode("utf-8"), method="POST",
         headers={"Authorization": f"Bearer {RESEND_API_KEY}",
-                 "Content-Type": "application/json"},
+                 "Content-Type": "application/json",
+                 "Accept": "application/json",
+                 "User-Agent": "ai-fizibilite/1.0 (+https://ai-fizibilite-production.up.railway.app)"},
     )
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
