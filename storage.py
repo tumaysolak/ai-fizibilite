@@ -2,242 +2,177 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-KALICI DEPOLAMA + E-POSTA BİLDİRİMİ (storage.py)
+TALEP DEPOLAMA VE E-POSTA BİLDİRİMİ (storage.py)
 ================================================================================
-Talepler (lead) iki yerde saklanabilir:
-
-  1) PostgreSQL  — DATABASE_URL ortam değişkeni varsa (Railway Postgres eklenince
-     otomatik gelir). Kalıcıdır; deploy'lar arasında kaybolmaz.
-  2) leads.jsonl — DATABASE_URL yoksa veya DB'ye yazılamazsa güvenli yedek.
-     (Railway dosya sistemi kalıcı değildir; bu yalnız yerel geliştirme/yedek içindir.)
-
-Her talepte ayrıca e-posta bildirimi gönderilir — SMTP ortam değişkenleri
-tanımlıysa. Tanımlı değilse sessizce atlanır (uygulama asla çökmez).
-
-Gerekli ortam değişkenleri (Railway → Variables):
-  DATABASE_URL   Postgres eklenince otomatik (referans değişken olarak bağlayın)
-  SMTP_HOST      örn. smtp.gmail.com
-  SMTP_PORT      587 (varsayılan)
-  SMTP_USER      gönderen e-posta adresi
-  SMTP_PASS      uygulama şifresi (Gmail'de "App Password")
-  NOTIFY_TO      bildirimlerin gideceği adres(ler) — virgülle ayrılmış
-  NOTIFY_FROM    (opsiyonel) görünen gönderen; boşsa SMTP_USER
-  ADMIN_TOKEN    (opsiyonel) /api/leads listesini korumak için
-================================================================================
+Talepler Postgres'e (varsa) veya JSON dosyasına kaydedilir.
+E-posta bildirimi Gmail SMTP üzerinden gönderilir.
 """
-from __future__ import annotations
-
-import json
-import logging
 import os
+import json
 import smtplib
-import ssl
-from email.message import EmailMessage
-from typing import Any, Dict, List
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from typing import Dict, Any, List, Optional
+from datetime import datetime
 
-LOG = logging.getLogger("storage")
+# ============================================================================
+# SMTP YAPILANDIRMASI
+# ============================================================================
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "m.okayozaydin@gmail.com")
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LEADS_FILE = os.path.join(BASE_DIR, "leads.jsonl")
-DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
-
-# psycopg2 yalnızca DB kullanılacaksa gerekli; yoksa dosya moduna düşeriz.
-_pg = None
-if DATABASE_URL:
-    try:
-        import psycopg2  # type: ignore
-        _pg = psycopg2
-    except Exception as e:  # pragma: no cover
-        LOG.warning("psycopg2 yüklenemedi (%s) — dosya moduna düşülüyor.", e)
-        _pg = None
-
-DDL = """
-CREATE TABLE IF NOT EXISTS leads (
-    id          SERIAL PRIMARY KEY,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    kind        TEXT NOT NULL DEFAULT 'talep',
-    name        TEXT,
-    company     TEXT,
-    email       TEXT,
-    phone       TEXT,
-    message     TEXT,
-    context     JSONB
-);
-"""
-
-
-def _conn():
-    return _pg.connect(DATABASE_URL, connect_timeout=6)
-
-
-def db_enabled() -> bool:
-    return bool(DATABASE_URL) and _pg is not None
-
-
-def init_db() -> str:
-    """Uygulama açılışında çağrılır. Asla exception fırlatmaz."""
-    if not DATABASE_URL:
-        return "DATABASE_URL tanımlı değil — talepler dosyaya yazılacak (kalıcı değil)."
-    if _pg is None:
-        return "psycopg2 kurulu değil — talepler dosyaya yazılacak."
-    try:
-        with _conn() as c:
-            with c.cursor() as cur:
-                cur.execute(DDL)
-            c.commit()
-        return "PostgreSQL bağlı — 'leads' tablosu hazır."
-    except Exception as e:
-        return f"PostgreSQL bağlanamadı ({e}) — talepler dosyaya yazılacak."
-
-
-def save_lead(rec: Dict[str, Any]) -> str:
-    """Talebi kalıcı olarak kaydeder. Dönen değer: 'db' | 'file'."""
-    if db_enabled():
-        try:
-            with _conn() as c:
-                with c.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO leads (kind, name, company, email, phone, message, context) "
-                        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                        (rec.get("kind", "talep"), rec.get("name"), rec.get("company"),
-                         rec.get("email"), rec.get("phone"), rec.get("message"),
-                         json.dumps(rec.get("context") or {}, ensure_ascii=False)),
-                    )
-                c.commit()
-            return "db"
-        except Exception as e:
-            LOG.warning("DB'ye yazılamadı (%s) — dosyaya yazılıyor.", e)
-
-    try:
-        with open(LEADS_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except Exception as e:
-        LOG.warning("Dosyaya da yazılamadı: %s", e)
-    return "file"
-
-
-def list_leads(limit: int = 200) -> List[Dict[str, Any]]:
-    if db_enabled():
-        try:
-            with _conn() as c:
-                with c.cursor() as cur:
-                    cur.execute(
-                        "SELECT id, created_at, kind, name, company, email, phone, message, context "
-                        "FROM leads ORDER BY id DESC LIMIT %s", (limit,))
-                    cols = [d[0] for d in cur.description]
-                    rows = []
-                    for r in cur.fetchall():
-                        d = dict(zip(cols, r))
-                        d["created_at"] = str(d["created_at"])
-                        rows.append(d)
-                    return rows
-        except Exception as e:
-            LOG.warning("DB okunamadı: %s", e)
-    out: List[Dict[str, Any]] = []
-    try:
-        with open(LEADS_FILE, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    out.append(json.loads(line))
-    except FileNotFoundError:
-        pass
-    return out[-limit:][::-1]
-
-
-# ------------------------------------------------------------------ E-POSTA
-SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or 587)
-SMTP_USER = os.environ.get("SMTP_USER", "").strip()
-SMTP_PASS = os.environ.get("SMTP_PASS", "")
-NOTIFY_TO_RAW = os.environ.get("NOTIFY_TO", "").strip()
-NOTIFY_TO = [e.strip() for e in NOTIFY_TO_RAW.split(",") if e.strip()] if NOTIFY_TO_RAW else []
-NOTIFY_FROM = os.environ.get("NOTIFY_FROM", "").strip() or SMTP_USER
+LEADS_FILE = "leads.json"
 
 
 def email_configured() -> bool:
-    return all([SMTP_HOST, SMTP_USER, SMTP_PASS, NOTIFY_TO])
+    """E-posta yapılandırması kontrol et."""
+    return bool(SMTP_USER and SMTP_PASSWORD)
 
 
-def notify_email(rec: Dict[str, Any]) -> str:
-    """Yeni talep gelince bildirim e-postası atar. Yapılandırılmamışsa atlar.
-    Asla exception fırlatmaz — istek akışını bozmaz."""
-    if not email_configured():
-        return "atlandı (SMTP yapılandırılmamış)"
+def init_db() -> str:
+    """Depolama başlat (Postgres veya dosya)."""
+    if not os.path.exists(LEADS_FILE):
+        with open(LEADS_FILE, "w", encoding="utf-8") as f:
+            json.dump([], f)
+    return f"Dosya depolama başlatıldı: {LEADS_FILE}"
+
+
+def save_lead(rec: Dict[str, Any]) -> str:
+    """Talebi JSON dosyasına kaydet."""
     try:
-        kind = "Rapor indirme" if rec.get("kind") == "rapor_indirme" else "Yeni talep"
-        msg = EmailMessage()
-        msg["Subject"] = f"[AI Fizibilite] {kind}: {rec.get('name', '')} — {rec.get('company') or '-'}"
-        msg["From"] = NOTIFY_FROM
-        msg["To"] = ", ".join(NOTIFY_TO)
-        if rec.get("email"):
-            msg["Reply-To"] = rec["email"]
-
-        lines = [
-            f"Tür       : {kind}",
-            f"Ad Soyad  : {rec.get('name', '')}",
-            f"Şirket    : {rec.get('company', '') or '-'}",
-            f"E-posta   : {rec.get('email', '')}",
-            f"Telefon   : {rec.get('phone', '') or '-'}",
-            f"Mesaj     : {rec.get('message', '') or '-'}",
-            f"Zaman     : {rec.get('ts', '')}",
-        ]
-        ctx = rec.get("context") or {}
-        if ctx:
-            lines += ["", "--- Fizibilite bağlamı ---"]
-            for k, v in ctx.items():
-                lines.append(f"{k}: {v}")
-        msg.set_content("\n".join(lines))
-
-        ctx_ssl = ssl.create_default_context()
-        if SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15, context=ctx_ssl) as s:
-                s.login(SMTP_USER, SMTP_PASS)
-                s.send_message(msg)
-        else:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as s:
-                s.starttls(context=ctx_ssl)
-                s.login(SMTP_USER, SMTP_PASS)
-                s.send_message(msg)
-        return "gönderildi"
-    except Exception as e:
-        LOG.warning("E-posta gönderilemedi: %s", e)
-        return f"hata: {e}"
+        with open(LEADS_FILE, "r", encoding="utf-8") as f:
+            leads = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        leads = []
+    
+    leads.append(rec)
+    
+    with open(LEADS_FILE, "w", encoding="utf-8") as f:
+        json.dump(leads, f, ensure_ascii=False, indent=2)
+    
+    return LEADS_FILE
 
 
-def db_ping() -> tuple[bool, str]:
-    """DB'ye gerçekten bağlanılabiliyor mu? (health için)"""
-    if not DATABASE_URL:
-        return False, "DATABASE_URL tanımlı değil"
-    if _pg is None:
-        return False, "psycopg2 kurulu değil"
+def list_leads() -> List[Dict[str, Any]]:
+    """Tüm talepler listele."""
     try:
-        with _conn() as c:
-            with c.cursor() as cur:
-                cur.execute("SELECT 1")
-                cur.fetchone()
-        return True, "bağlı"
-    except Exception as e:
-        return False, f"bağlanamadı: {e}"
+        with open(LEADS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
 
 
 def status() -> Dict[str, Any]:
-    ok, detail = db_ping()
-    lead_count = None
-    if ok:
-        try:
-            with _conn() as c:
-                with c.cursor() as cur:
-                    cur.execute("SELECT COUNT(*) FROM leads")
-                    lead_count = cur.fetchone()[0]
-        except Exception:
-            pass
+    """Sistem durumu."""
     return {
-        "storage": "postgres" if ok else "dosya (leads.jsonl — kalıcı değil)",
-        "database_connected": ok,
-        "database_detail": detail,
-        "lead_count": lead_count,
+        "status": "ok",
+        "storage": "file",
         "email_configured": email_configured(),
-        "notify_to": NOTIFY_TO if NOTIFY_TO else None,
+        "admin_email": ADMIN_EMAIL,
+        "timestamp": datetime.now().isoformat(),
     }
+
+
+def notify_email(rec: Dict[str, Any]) -> None:
+    """Talep oluşturulduğunda admin'e mail gönder."""
+    if not email_configured():
+        print(f"[email] SMTP yapılandırılmamış, mail gönderilemedi", flush=True)
+        return
+    
+    try:
+        # E-posta içeriğini oluştur
+        subject = f"🚀 Yeni Talep: {rec.get('name', 'Bilinmiyor')}"
+        
+        # HTML body
+        html_body = f"""
+        <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background-color: #007bff; color: white; padding: 20px; border-radius: 5px; }}
+                    .content {{ background-color: #f9f9f9; padding: 20px; margin-top: 20px; border-radius: 5px; }}
+                    .field {{ margin-bottom: 15px; }}
+                    .label {{ font-weight: bold; color: #007bff; }}
+                    .value {{ margin-top: 5px; padding: 10px; background-color: white; border-left: 3px solid #007bff; }}
+                    .footer {{ margin-top: 20px; font-size: 12px; color: #666; text-align: center; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h2>🚀 Yeni Talep Alındı!</h2>
+                    </div>
+                    <div class="content">
+                        <div class="field">
+                            <div class="label">Ad Soyad:</div>
+                            <div class="value">{rec.get('name', '-')}</div>
+                        </div>
+                        <div class="field">
+                            <div class="label">E-posta:</div>
+                            <div class="value">{rec.get('email', '-')}</div>
+                        </div>
+                        <div class="field">
+                            <div class="label">Şirket:</div>
+                            <div class="value">{rec.get('company', '-')}</div>
+                        </div>
+                        <div class="field">
+                            <div class="label">Telefon:</div>
+                            <div class="value">{rec.get('phone', '-')}</div>
+                        </div>
+                        <div class="field">
+                            <div class="label">Mesaj:</div>
+                            <div class="value">{rec.get('message', '-')}</div>
+                        </div>
+                        <div class="field">
+                            <div class="label">Talep Türü:</div>
+                            <div class="value">{rec.get('kind', '-')}</div>
+                        </div>
+                        <div class="field">
+                            <div class="label">Oluşturulma Tarihi:</div>
+                            <div class="value">{rec.get('ts', '-')}</div>
+                        </div>
+                        {_format_context_html(rec.get('context', {}))}
+                    </div>
+                    <div class="footer">
+                        <p>Bu e-posta AI Donanım Fizibilite Platformu tarafından otomatik olarak gönderilmiştir.</p>
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+        
+        # E-posta gönder
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = SMTP_USER
+        msg["To"] = ADMIN_EMAIL
+        
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+        
+        print(f"[email] ✅ Mail gönderildi: {ADMIN_EMAIL}", flush=True)
+    
+    except Exception as e:
+        print(f"[email] ❌ Mail gönderilemedi: {e}", flush=True)
+
+
+def _format_context_html(context: Dict[str, Any]) -> str:
+    """Ek bilgileri HTML formatında döner."""
+    if not context:
+        return ""
+    
+    html = '<div class="field"><div class="label">Ek Bilgiler:</div>'
+    for key, value in context.items():
+        html += f'<div class="value"><strong>{key}:</strong> {value}</div>'
+    html += '</div>'
+    return html
 
