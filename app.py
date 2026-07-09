@@ -24,7 +24,7 @@ import json
 import time
 from typing import Optional, Any, Dict
 
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -32,6 +32,7 @@ from pydantic import BaseModel
 from engine import load_gpu_catalog, load_model_catalog
 from feasibility import FeasibilityAnalyzer, FeasibilityInputs
 from business import BusinessFeasibility, BusinessInputs, catalog_for_ui
+import storage
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -42,6 +43,24 @@ GPU_CATALOG = load_gpu_catalog()
 MODEL_CATALOG = load_model_catalog()
 ANALYZER = FeasibilityAnalyzer(GPU_CATALOG, MODEL_CATALOG)
 BUSINESS = BusinessFeasibility(GPU_CATALOG, MODEL_CATALOG)
+
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "").strip()
+
+
+@app.on_event("startup")
+def _startup():
+    print("[storage]", storage.init_db(), flush=True)
+    print("[storage] e-posta bildirimi:",
+          "AÇIK" if storage.email_configured() else "KAPALI (SMTP değişkenleri tanımlı değil)", flush=True)
+
+
+def _record_lead(rec: Dict[str, Any], bg: BackgroundTasks) -> str:
+    """Talebi kalıcı olarak kaydeder, e-postayı arka planda gönderir (isteği bekletmez)."""
+    rec["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    where = storage.save_lead(rec)
+    print(f"=== YENİ KAYIT ({where}) ===", json.dumps(rec, ensure_ascii=False), flush=True)
+    bg.add_task(storage.notify_email, rec)
+    return where
 
 
 class AnalyzeRequest(BaseModel):
@@ -119,9 +138,6 @@ def api_quick(req: QuickRequest):
     return JSONResponse(BUSINESS.analyze(bi))
 
 
-LEADS_FILE = os.path.join(BASE_DIR, "leads.jsonl")
-
-
 class LeadRequest(BaseModel):
     name: str
     company: Optional[str] = ""
@@ -132,19 +148,28 @@ class LeadRequest(BaseModel):
 
 
 @app.post("/api/lead")
-def api_lead(req: LeadRequest):
-    """Kullanıcı talebini kaydeder. Not: Railway dosya sistemi kalıcı değildir;
-    bu yüzden talep ayrıca sunucu loglarına da yazılır (oradan kaçırılmaz).
-    İleride e-posta / CRM webhook'una bağlanabilir."""
+def api_lead(req: LeadRequest, bg: BackgroundTasks):
+    """Kullanıcı talebini Postgres'e (yoksa dosyaya) kaydeder ve e-posta bildirimi atar."""
     rec = req.model_dump()
-    rec["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        with open(LEADS_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
-    print("=== YENİ TALEP ===", json.dumps(rec, ensure_ascii=False), flush=True)
+    rec["kind"] = "talep"
+    _record_lead(rec, bg)
     return {"ok": True, "message": "Talebiniz alındı. En kısa sürede sizinle iletişime geçeceğiz."}
+
+
+@app.get("/api/health")
+def api_health():
+    """Depolama ve e-posta yapılandırmasını gösterir (yayın sonrası doğrulama için)."""
+    return storage.status()
+
+
+@app.get("/api/leads")
+def api_leads(token: str = ""):
+    """Gelen talepleri listeler. ADMIN_TOKEN tanımlıysa korumalıdır."""
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="ADMIN_TOKEN tanımlı değil; bu uç nokta kapalı.")
+    if token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Geçersiz token.")
+    return storage.list_leads()
 
 
 class ReportRequest(BaseModel):
@@ -215,18 +240,14 @@ def _strip_html(s: str) -> str:
 
 
 @app.post("/api/report")
-def api_report(req: ReportRequest):
-    """Kullanıcı bilgilerini kaydeder ve analiz sonucunu CSV veri seti olarak döner."""
+def api_report(req: ReportRequest, bg: BackgroundTasks):
+    """Kullanıcı bilgilerini kaydeder (+e-posta bildirimi) ve analiz sonucunu CSV veri seti olarak döner."""
     lead = {"name": req.name, "email": req.email, "company": req.company, "phone": req.phone}
     rec = dict(lead)
     rec["kind"] = "rapor_indirme"
-    rec["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        with open(LEADS_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
-    print("=== RAPOR İNDİRME TALEBİ ===", json.dumps(rec, ensure_ascii=False), flush=True)
+    rec["context"] = {"use_case": req.inputs.use_case, "ai_users": req.inputs.ai_users,
+                      "employees": req.inputs.employees, "sector": req.inputs.sector}
+    _record_lead(rec, bg)
 
     bi = BusinessInputs(**req.inputs.model_dump())
     result = BUSINESS.analyze(bi)

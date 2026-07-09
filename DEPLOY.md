@@ -61,6 +61,54 @@ adres için DNS'te bir **CNAME** kaydı açmanız yeterli; HTTPS sertifikası ot
 - **Sadece göstermek/paylaşmak** için → **Render** veya **Railway** (5 dakika).
 - **Kurumsal, kalıcı, kendi alan adı** → **Cloud Run** ya da **VPS + nginx**.
 
+## Veritabanı (kalıcı talepler) ve e-posta bildirimi
+
+Varsayılan olarak talepler `leads.jsonl` dosyasına yazılır — **Railway'de bu dosya
+her deploy'da silinir.** Kalıcı olması için PostgreSQL ekleyin.
+
+### 1) Railway'e PostgreSQL ekleyin
+1. Railway projenizde **New → Database → Add PostgreSQL**.
+2. `ai-fizibilite` servisine gidin → **Variables** → **New Variable** →
+   **Add Reference** → `Postgres` → `DATABASE_URL` seçin.
+   (Böylece `DATABASE_URL` servise otomatik geçer.)
+3. Servis yeniden deploy olur. Uygulama açılışta `leads` tablosunu **kendi oluşturur**.
+
+### 2) E-posta bildirimi (her yeni talepte)
+`ai-fizibilite` servisi → **Variables** → şu değişkenleri ekleyin:
+
+| Değişken | Örnek | Not |
+|---|---|---|
+| `SMTP_HOST` | `smtp.gmail.com` | |
+| `SMTP_PORT` | `587` | 465 kullanırsanız SSL'e otomatik geçer |
+| `SMTP_USER` | `siz@gmail.com` | gönderen hesap |
+| `SMTP_PASS` | *(uygulama şifresi)* | Gmail'de **App Password** — normal şifre değil |
+| `NOTIFY_TO` | `siz@gmail.com` | bildirimlerin gideceği adres |
+| `NOTIFY_FROM` | *(opsiyonel)* | boşsa `SMTP_USER` |
+| `ADMIN_TOKEN` | *(opsiyonel)* | `/api/leads` listesini korur |
+
+> **Gmail için:** hesabınızda 2 adımlı doğrulama açık olmalı; ardından
+> Google Hesabı → Güvenlik → Uygulama şifreleri'nden 16 haneli bir şifre üretip
+> `SMTP_PASS` olarak girin. Şifreyi yalnızca Railway arayüzüne siz girin.
+
+SMTP değişkenleri tanımlı değilse e-posta **sessizce atlanır**; uygulama çalışmaya devam eder.
+
+### 3) Doğrulama
+```
+https://<siteniz>/api/health
+```
+Beklenen çıktı:
+```json
+{"storage":"postgres","database_connected":true,"lead_count":0,"email_configured":true, ...}
+```
+Talepleri listelemek için (ADMIN_TOKEN tanımlıysa):
+```
+https://<siteniz>/api/leads?token=SIZIN_TOKENINIZ
+```
+
+### Neden hem DB hem dosya?
+DB erişilemezse uygulama **çökmez**; talep dosyaya yazılır ve ayrıca sunucu
+loglarına basılır. Böylece hiçbir talep kaybolmaz.
+
 ## Notlar
 - Uygulama `PORT` ortam değişkenini otomatik okur (bulut sağlayıcılar bunu verir).
 - Dış bağımlılık yok; internet gerektiren bir çağrı yapmaz — kapalı ağda da çalışır.
