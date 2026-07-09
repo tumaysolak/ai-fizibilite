@@ -20,7 +20,7 @@ Gerekli ortam değişkenleri (Railway → Variables):
   SMTP_PORT      587 (varsayılan)
   SMTP_USER      gönderen e-posta adresi
   SMTP_PASS      uygulama şifresi (Gmail'de "App Password")
-  NOTIFY_TO      bildirimlerin gideceği adres
+  NOTIFY_TO      bildirimlerin gideceği adres(ler) — virgülle ayrılmış
   NOTIFY_FROM    (opsiyonel) görünen gönderen; boşsa SMTP_USER
   ADMIN_TOKEN    (opsiyonel) /api/leads listesini korumak için
 ================================================================================
@@ -150,7 +150,8 @@ SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or 587)
 SMTP_USER = os.environ.get("SMTP_USER", "").strip()
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
-NOTIFY_TO = os.environ.get("NOTIFY_TO", "").strip()
+NOTIFY_TO_RAW = os.environ.get("NOTIFY_TO", "").strip()
+NOTIFY_TO = [e.strip() for e in NOTIFY_TO_RAW.split(",") if e.strip()] if NOTIFY_TO_RAW else []
 NOTIFY_FROM = os.environ.get("NOTIFY_FROM", "").strip() or SMTP_USER
 
 
@@ -168,7 +169,7 @@ def notify_email(rec: Dict[str, Any]) -> str:
         msg = EmailMessage()
         msg["Subject"] = f"[AI Fizibilite] {kind}: {rec.get('name', '')} — {rec.get('company') or '-'}"
         msg["From"] = NOTIFY_FROM
-        msg["To"] = NOTIFY_TO
+        msg["To"] = ", ".join(NOTIFY_TO)
         if rec.get("email"):
             msg["Reply-To"] = rec["email"]
 
@@ -237,5 +238,6 @@ def status() -> Dict[str, Any]:
         "database_detail": detail,
         "lead_count": lead_count,
         "email_configured": email_configured(),
-        "notify_to": NOTIFY_TO or None,
+        "notify_to": NOTIFY_TO if NOTIFY_TO else None,
     }
+
