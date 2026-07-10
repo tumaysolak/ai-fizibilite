@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Fizibilite — Kendi yapay zekânız kaça mal olur, ne zaman geri döner?</title>
-<meta name="description" content="İşletmenize özel yapay zekâ kurulumu için model, donanım, yatırım ve geri ödeme fizibilitesi. Kendi sunucunuzu kurmanın maliyetini ve avantajını dakikalar içinde görün.">
+<title>AI Fizibilite — Kendi yapay zekanız kaça mal olur, ne zaman geri döner?</title>
+<meta name="description" content="İşletmenize özel yapay zeka kurulumu için model, donanım, yatırım ve geri ödeme fizibilitesi. Kendi sunucunuzu kurmanın maliyetini ve avantajını dakikalar içinde görün.">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root{
@@ -198,7 +198,7 @@
 <section class="hero" id="top" style="padding:0">
   <div class="wrap in">
     <div class="badge-top">🇹🇷 İşletmenize özel · KVKK uyumlu · TL bazlı</div>
-    <h1>Yapay zekâya <span class="g">ne kadar yatırmalı</span>,<br>ne zaman geri döner?</h1>
+    <h1>Yapay zekaya <span class="g">ne kadar yatırmalı</span>,<br>ne zaman geri döner?</h1>
     <p>Hangi modeli seçmelisiniz, ne kadar donanım gerekir, kendi sunucunuz mu yoksa bulut mu daha akıllıca? Birkaç iş sorusuna cevap verin; yatırım tutarını ve geri ödeme süresini net görün.</p>
     <div class="actions">
       <a class="btn btn-primary" href="#hesapla">Ücretsiz fizibilite hesapla →</a>
@@ -216,7 +216,7 @@
 <section id="nedir" class="alt">
   <div class="wrap">
     <h2 class="sec">Bu nedir?</h2>
-    <p class="seclead">AI Fizibilite; işletmenizin yapay zekâ ihtiyacını, teknik jargona girmeden bir yatırım kararına dönüştürür. Gerçek donanım fiyatları ve doğrulanmış bir hesap motoruyla; hangi model, hangi sunucu, ne kadar maliyet ve ne zaman kâra geçtiğinizi gösterir.</p>
+    <p class="seclead">AI Fizibilite; işletmenizin yapay zeka ihtiyacını, teknik jargona girmeden bir yatırım kararına dönüştürür. Gerçek donanım fiyatları ve doğrulanmış bir hesap motoruyla; hangi model, hangi sunucu, ne kadar maliyet ve ne zaman kazanca geçtiğinizi gösterir.</p>
     <div class="feat">
       <div class="fc"><div class="ic">🎯</div><h3>İş odaklı</h3><p>Token, VRAM bilmenize gerek yok. Ekip, sektör ve kullanım amacını girin; gerisini biz çeviririz.</p></div>
       <div class="fc"><div class="ic">🧮</div><h3>Gerçek hesap motoru</h3><p>VRAM, hız ve maliyet; MILP optimizasyonu (scipy) ile ispatlanabilir en uygun donanımı seçer.</p></div>
@@ -459,21 +459,26 @@ function render(d){
       <span class="toggle-adv" onclick="restart()">↺ Baştan hesapla</span>
     </div>
     ${d.privacy_note?`<div class="verdict info" style="margin-bottom:16px">🔒 ${d.privacy_note}</div>`:''}
+
+    <div class="block"><h4>Önce üç yolu yan yana koyalım</h4>
+      <p class="muted" style="margin:-6px 0 14px;font-size:12.5px">Bugün ödediğiniz abonelik, bulut API'ye geçmek ve kendi sunucunuzu kurmak — <b>36 aylık toplam maliyetleri</b>. Rakamlar tek başına değil, birbirine göre anlam kazanır.</p>
+      <table class="cmp"><tr><th>Yol</th><th style="text-align:right">Aylık</th><th style="text-align:right">Peşin</th><th style="text-align:right">36 Ay Toplam</th></tr>${cmpRows}</table>
+      <div class="chartwrap" style="margin-top:18px"><canvas id="cmpChart"></canvas></div>
+    </div>
+
     <div class="verdict ${rec.tone||'info'}"><h3>${rec.headline}</h3><div class="detail">${rec.detail||''}</div></div>
     <div class="kpis">
-      <div class="kpi"><div class="k">Önerilen Yatırım</div><div class="v">${fUSD(mid.upfront_usd)}</div><div class="s">${fTRY(mid.upfront_try)} · donanım + sunucu</div></div>
+      <div class="kpi"><div class="k">Yıllık Tasarruf</div><div class="v ${annual>0?'good':'bad'}">${fUSD(annual)}</div><div class="s">${annual?fTRY(annual*(+$('usdtry').value||34)):''}</div></div>
       <div class="kpi"><div class="k">Geri Ödeme</div><div class="v ${mid.payback_months&&mid.payback_months<=36?'good':'warn'}">${mid.payback_months?fN(mid.payback_months,0):'—'} <small>ay</small></div><div class="s">${fUSD(mid.baseline_month_usd)}/ay gidere göre</div></div>
       <div class="kpi"><div class="k">Aylık Tasarruf</div><div class="v ${mid.monthly_saving_usd>0?'good':'bad'}">${fUSD(mid.monthly_saving_usd)}</div><div class="s">${mid.monthly_saving_try!=null?fTRY(mid.monthly_saving_try)+'/ay':''}</div></div>
-      <div class="kpi"><div class="k">Yıllık Tasarruf</div><div class="v ${annual>0?'good':'bad'}">${fUSD(annual)}</div><div class="s">${annual?fTRY(annual*(+$('usdtry').value||34)):''}</div></div>
+      <div class="kpi"><div class="k">Tek Seferlik Yatırım</div><div class="v">${fUSD(mid.upfront_usd)}</div><div class="s">${fTRY(mid.upfront_try)} · donanım + sunucu</div></div>
     </div>
+
     <div class="block"><h4>Neden kendi sunucunuz? — sadece fiyat değil</h4>
       <p class="muted" style="margin:-6px 0 14px;font-size:12.5px">Karar çoğu zaman sadece "bu ay hangisi ucuz" diye veriliyor. Oysa kendi sunucunuzun maliyet-dışı avantajları küçük ekiplerde bile onu öne çıkarır:</p>
       <div class="adv">${advHtml}</div>
     </div>
-    <div class="block"><h4>Üç yol, 36 aylık toplam maliyet</h4>
-      <table class="cmp"><tr><th>Yol</th><th style="text-align:right">Aylık</th><th style="text-align:right">Peşin</th><th style="text-align:right">36 Ay Toplam</th></tr>${cmpRows}</table>
-      <div class="chartwrap" style="margin-top:18px"><canvas id="cmpChart"></canvas></div>
-    </div>
+
     <div class="block"><h4>Benimseme senaryoları — kaç kişi kullanırsa ne olur?</h4>
       <p class="muted" style="margin:-6px 0 14px;font-size:12.5px">Öneri, <b>sizin girdiğiniz ${echo.ai_users} kullanıcı</b> (Beklenen) üzerinden yapıldı. Kullanım daha dar bir pilot ekiple başlarsa veya tüm ekibe yayılırsa ne olacağını da gösteriyoruz. Donanım her senaryoda o hacmi karşılayacak şekilde boyutlandı.</p>
       <div class="scn">${scnHtml}</div>
