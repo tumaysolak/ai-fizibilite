@@ -29,15 +29,25 @@ from engine import (
 )
 
 
+# Donanımın ekonomik ömrü. Geri ödeme bunu aşıyorsa yatırım önerilmez:
+# yatırım kendini çıkarmadan donanım eskir/değersizleşir.
+HARDWARE_LIFE_MONTHS: int = 36
+MAX_PAYBACK_MONTHS: int = 240   # iskontolu geri ödeme aramasında üst sınır
+
+
 @dataclass
 class FeasibilityInputs:
     model_name: str
     context_length: Optional[int] = None
     batch_size: int = 8
     monthly_volume: float = 50_000_000       # aylık token (veya diffusion'da görsel) hacmi
-    electricity_price_usd_per_kwh: float = 0.12
+    # Temmuz 2026 sanayi elektriği ≈ 5,4 TL/kWh ≈ 0.115 USD/kWh
+    electricity_price_usd_per_kwh: float = 0.115
     pue: float = 1.4
-    usd_try: float = 34.0                     # 1 USD = ? TL
+    usd_try: float = 46.9                     # 1 USD = ? TL (Temmuz 2026)
+    # Yıllık sermaye maliyeti (USD bazlı fırsat/finansman maliyeti). Capex'in
+    # bağlanmasının bedeli: paranın zaman değeri buradan modele girer.
+    annual_capital_cost_pct: float = 15.0
     server_overhead_pct: float = 0.35         # şasi, ağ, kurulum, soğutma ek maliyeti
     fixed_monthly_ops_usd: float = 0.0        # bakım/personel/kolokasyon (opsiyonel)
     cloud_rate_usd_per_1k: Optional[float] = None   # bulut alternatifi (yoksa modelin katalog değeri)
@@ -181,23 +191,56 @@ class FeasibilityAnalyzer:
             else cloud_rate * inp.monthly_volume  # image başına
         cloud_unit_label = "USD/1K token" if unit == "token/s" else "USD/görsel"
 
-        # Aylık tasarruf ve geri ödeme
+        # ---------------- PARANIN ZAMAN DEĞERİ ----------------
+        # CoT: Capex bedava değildir — ya kredi faizi ödenir ya da o para başka
+        # bir yerde getiri sağlardı. Bunu modele katmadan yapılan geri ödeme
+        # hesabı, "190 ayda döner" gibi gerçekte ASLA dönmeyecek yatırımları
+        # makul gösterir. Bu yüzden hem finansman maliyetini hem de İSKONTOLU
+        # geri ödemeyi hesaplıyoruz.
+        r = max(inp.annual_capital_cost_pct, 0.0) / 100.0     # yıllık sermaye maliyeti
+        i = (1 + r) ** (1 / 12.0) - 1 if r > 0 else 0.0       # aylık oran
+        N = inp.horizon_months
+        financing_cost = upfront_usd * ((1 + r) ** (N / 12.0) - 1) if r > 0 else 0.0
+
         monthly_savings = cloud_month - opex_month
+        nominal_payback = upfront_usd / monthly_savings if monthly_savings > 0 else None
+
+        # İskontolu geri ödeme: tasarrufların BUGÜNKÜ değeri capex'i ne zaman karşılar?
+        # i > 0 iken iskontolu tasarruf toplamı en fazla (aylık tasarruf / i) olabilir.
+        # Capex bu tavanın üstündeyse yatırım matematiksel olarak ASLA kendini ödemez.
+        discounted_payback: Optional[float] = None
+        never_pays_back = False
         if monthly_savings > 0:
-            payback_months = upfront_usd / monthly_savings
+            if i <= 0:
+                discounted_payback = nominal_payback
+            elif (monthly_savings / i) <= upfront_usd:
+                never_pays_back = True     # iskontolu tavan capex'in altında
+            else:
+                acc = 0.0
+                for m in range(1, MAX_PAYBACK_MONTHS + 1):
+                    acc += monthly_savings / ((1 + i) ** m)
+                    if acc >= upfront_usd:
+                        discounted_payback = float(m)
+                        break
         else:
-            payback_months = None  # yerel asla kendini ödemez
+            never_pays_back = True
+
+        payback_months = discounted_payback
+        # Yatırım tavsiyesi: donanım ömrü (36 ay) içinde kendini ödemeli.
+        invest_recommended = bool(capacity_ok and payback_months is not None
+                                  and payback_months <= HARDWARE_LIFE_MONTHS)
 
         # Amortisman bazlı aylık yerel toplam (amort + opex) — TCO kıyası
         amort_month = (cost.hourly_amortization_usd * HOURS_PER_MONTH) if cost else \
             (hardware_usd / DEFAULT_HARDWARE_LIFETIME_HOURS * HOURS_PER_MONTH)
         local_month_tco = amort_month + opex_month
 
-        # Ufuk boyunca kümülatif eğri (grafik için)
+        # Ufuk boyunca kümülatif eğri (grafik için) — yerel tarafa finansman maliyeti dahil
         months = list(range(0, inp.horizon_months + 1))
-        cum_local = [round(upfront_usd + opex_month * m, 2) for m in months]
+        cum_local = [round(upfront_usd + opex_month * m
+                           + (upfront_usd * ((1 + r) ** (m / 12.0) - 1) if r > 0 else 0.0), 2)
+                     for m in months]
         cum_cloud = [round(cloud_month * m, 2) for m in months]
-        # Kesişim (grafikteki payback noktası) months cinsinden = payback_months
 
         net_savings_horizon = cum_cloud[-1] - cum_local[-1]
         roi_pct = (net_savings_horizon / upfront_usd * 100.0) if upfront_usd > 0 else None
@@ -226,8 +269,16 @@ class FeasibilityAnalyzer:
             "cloud_month_try": _try(cloud_month, rate),
             "monthly_savings_usd": round(monthly_savings, 2),
             "monthly_savings_try": _try(monthly_savings, rate),
+            # Paranın zaman değeri
+            "annual_capital_cost_pct": inp.annual_capital_cost_pct,
+            "financing_cost_usd": round(financing_cost, 2),
+            "financing_cost_try": _try(financing_cost, rate),
+            "nominal_payback_months": round(nominal_payback, 1) if nominal_payback else None,
             "payback_months": round(payback_months, 1) if payback_months else None,
-            "payback_verdict": _payback_verdict(payback_months, capacity_ok),
+            "never_pays_back": never_pays_back,
+            "invest_recommended": invest_recommended,
+            "hardware_life_months": HARDWARE_LIFE_MONTHS,
+            "payback_verdict": _payback_verdict(payback_months, capacity_ok, never_pays_back),
             "utilization": round(utilization, 3),
             "capacity_ok": capacity_ok,
             "break_even_volume_per_month": round(break_even_volume) if break_even_volume else None,
@@ -273,13 +324,16 @@ def _default_cloud_rate(unit: str) -> float:
     return 0.01 if unit == "token/s" else 0.04
 
 
-def _payback_verdict(payback_months: Optional[float], capacity_ok: bool) -> str:
+def _payback_verdict(payback_months: Optional[float], capacity_ok: bool,
+                     never_pays_back: bool = False) -> str:
     if not capacity_ok:
         return "Seçilen donanım bu aylık hacmi 7/24 bile karşılayamıyor — daha fazla/güçlü GPU gerekir."
-    if payback_months is None:
-        return "Bu hacimde bulut daha ucuz — yerel yatırım kendini ödemiyor."
+    if never_pays_back or payback_months is None:
+        return ("Bu hacimde yatırım kendini ÖDEMİYOR. Sermaye maliyeti hesaba katıldığında "
+                "tasarruflar capex'i hiçbir zaman karşılamıyor — şimdilik bulut/abonelik doğru tercih.")
     if payback_months <= 12:
-        return f"Çok cazip: yatırım ~{payback_months:.1f} ayda geri döner."
-    if payback_months <= 36:
-        return f"Makul: yatırım ~{payback_months:.1f} ayda (donanım ömrü içinde) geri döner."
-    return f"Sınırda: geri ödeme ~{payback_months:.1f} ay (donanım ömrünü aşabilir)."
+        return f"Çok cazip: yatırım ~{payback_months:.0f} ayda geri döner (sermaye maliyeti dahil)."
+    if payback_months <= HARDWARE_LIFE_MONTHS:
+        return f"Makul: yatırım ~{payback_months:.0f} ayda, donanım ömrü ({HARDWARE_LIFE_MONTHS} ay) içinde geri döner."
+    return (f"Önerilmez: geri ödeme ~{payback_months:.0f} ay, donanım ömrünü "
+            f"({HARDWARE_LIFE_MONTHS} ay) aşıyor — yatırım kendini çıkarmadan donanım eskiyor.")

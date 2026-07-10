@@ -21,9 +21,37 @@ from __future__ import annotations
 
 from typing import Dict, Any, List, Optional
 
-from feasibility import FeasibilityAnalyzer, FeasibilityInputs
+from feasibility import (
+    FeasibilityAnalyzer, FeasibilityInputs, HARDWARE_LIFE_MONTHS, MAX_PAYBACK_MONTHS,
+)
 
 WORKING_DAYS_PER_MONTH = 22
+
+
+def discounted_payback(upfront: float, monthly_saving: float,
+                       annual_rate_pct: float) -> tuple[Optional[float], bool]:
+    """Sermaye maliyeti dahil geri ödeme süresi.
+
+    Tasarrufların bugünkü değeri capex'i ne zaman karşılar? Aylık oran i>0 iken
+    iskontolu tasarrufların toplamı en fazla (tasarruf / i) olabilir; capex bu
+    tavanın üstündeyse yatırım MATEMATİKSEL OLARAK asla kendini ödemez.
+
+    Dönüş: (geri_ödeme_ayı | None, asla_ödemez_mi)
+    """
+    if monthly_saving <= 0 or upfront <= 0:
+        return None, True
+    r = max(annual_rate_pct, 0.0) / 100.0
+    if r <= 0:
+        return upfront / monthly_saving, False
+    i = (1 + r) ** (1 / 12.0) - 1
+    if (monthly_saving / i) <= upfront:
+        return None, True          # iskontolu tavan capex'i geçemiyor
+    acc = 0.0
+    for m in range(1, MAX_PAYBACK_MONTHS + 1):
+        acc += monthly_saving / ((1 + i) ** m)
+        if acc >= upfront:
+            return float(m), False
+    return None, True
 
 # ------------------------------------------------------------------ KULLANIM AMAÇLARI
 # Her amaç, teknik parametrelere çeviri katsayılarını taşır:
@@ -86,12 +114,38 @@ USE_CASES: Dict[str, Dict[str, Any]] = {
 
 # ------------------------------------------------------------------ SEKTÖRLER
 # Bazı sektörler veri gizliliği/regülasyon nedeniyle kendi sunucusuna yönelir.
-PRIVACY_SENSITIVE = {"finans", "saglik", "hukuk", "kamu", "savunma"}
+PRIVACY_SENSITIVE = {"finans", "sigorta", "saglik", "ilac", "hukuk", "kamu",
+                     "savunma", "telekom", "muhasebe", "arastirma"}
 SECTORS = {
-    "finans": "Finans / Bankacılık", "saglik": "Sağlık", "hukuk": "Hukuk",
-    "kamu": "Kamu", "savunma": "Savunma", "eticaret": "E-ticaret / Perakende",
-    "yazilim": "Yazılım / Teknoloji", "egitim": "Eğitim", "uretim": "Üretim / Sanayi",
-    "medya": "Medya / Ajans", "diger": "Diğer",
+    "finans": "Finans / Bankacılık",
+    "sigorta": "Sigorta",
+    "saglik": "Sağlık",
+    "ilac": "İlaç / Biyoteknoloji",
+    "hukuk": "Hukuk",
+    "muhasebe": "Muhasebe / Denetim",
+    "danismanlik": "Danışmanlık",
+    "kamu": "Kamu",
+    "savunma": "Savunma / Havacılık",
+    "eticaret": "E-ticaret",
+    "perakende": "Perakende / Mağazacılık",
+    "yazilim": "Yazılım / Teknoloji",
+    "telekom": "Telekomünikasyon",
+    "egitim": "Eğitim",
+    "arastirma": "Araştırma / Ar-Ge",
+    "uretim": "Üretim / Sanayi",
+    "otomotiv": "Otomotiv",
+    "insaat": "İnşaat / Gayrimenkul",
+    "enerji": "Enerji / Elektrik",
+    "lojistik": "Lojistik / Taşımacılık",
+    "turizm": "Turizm / Otelcilik",
+    "gida": "Gıda / İçecek",
+    "tarim": "Tarım / Hayvancılık",
+    "tekstil": "Tekstil / Hazır Giyim",
+    "kimya": "Kimya / Petrokimya",
+    "medya": "Medya / Ajans / Reklam",
+    "spor": "Spor / Eğlence",
+    "sivil": "STK / Dernek / Vakıf",
+    "diger": "Diğer",
 }
 
 # Benimseme senaryoları. Çarpan doğrudan AKTİF KULLANICI SAYISINI ölçekler
@@ -143,8 +197,10 @@ class BusinessInputs:
         self.current_ai_spend_usd_month: float = float(kw.get("current_ai_spend_usd_month", 0) or 0)
         self.budget_usd: Optional[float] = kw.get("budget_usd")     # yatırım baremi (capex)
         self.quality: str = kw.get("quality", "dengeli")
-        self.usd_try: float = float(kw.get("usd_try", 34.0))
-        self.electricity_price_usd_per_kwh: float = float(kw.get("electricity_price_usd_per_kwh", 0.12))
+        self.usd_try: float = float(kw.get("usd_try", 46.9))
+        self.electricity_price_usd_per_kwh: float = float(kw.get("electricity_price_usd_per_kwh", 0.115))
+        # Yıllık sermaye maliyeti (%): capex'i finanse etmenin / bağlamanın bedeli
+        self.annual_capital_cost_pct: float = float(kw.get("annual_capital_cost_pct", 15.0))
 
 
 class BusinessFeasibility:
@@ -200,6 +256,7 @@ class BusinessFeasibility:
                 batch_size=8, monthly_volume=volume,
                 electricity_price_usd_per_kwh=bi.electricity_price_usd_per_kwh,
                 usd_try=bi.usd_try, cloud_rate_usd_per_1k=cloud_rate_arg,
+                annual_capital_cost_pct=bi.annual_capital_cost_pct,
                 min_tps=min_tps, horizon_months=36,
             )
             res = self.fa.analyze(inp)
@@ -263,15 +320,31 @@ class BusinessFeasibility:
             baseline = sub_m if sub_m > 0 else cloud_m
         out["baseline_month_usd"] = round(baseline, 2)
         if roi and roi["upfront_investment_usd"] and baseline > 0:
+            upfront = roi["upfront_investment_usd"]
             monthly_saving = baseline - roi["opex_month_usd"]
             out["monthly_saving_usd"] = round(monthly_saving, 2)
             out["monthly_saving_try"] = round(monthly_saving * bi.usd_try, 2)
-            out["payback_months"] = round(roi["upfront_investment_usd"] / monthly_saving, 1) if monthly_saving > 0 else None
             out["annual_saving_usd"] = round(monthly_saving * 12, 2)
             out["annual_saving_try"] = round(monthly_saving * 12 * bi.usd_try, 2)
+            # İSKONTOLU geri ödeme (sermaye maliyeti dahil) — nominal değil.
+            pb, never = discounted_payback(upfront, monthly_saving, bi.annual_capital_cost_pct)
+            out["payback_months"] = round(pb, 1) if pb else None
+            out["never_pays_back"] = never
+            out["nominal_payback_months"] = (round(upfront / monthly_saving, 1)
+                                             if monthly_saving > 0 else None)
+            # Capex'in ufuk (36 ay) boyunca bağlanmasının finansman maliyeti
+            r = max(bi.annual_capital_cost_pct, 0.0) / 100.0
+            fin = upfront * ((1 + r) ** (36 / 12.0) - 1) if r > 0 else 0.0
+            out["financing_cost_usd"] = round(fin, 2)
+            out["financing_cost_try"] = round(fin * bi.usd_try, 2)
+            out["invest_recommended"] = bool(out.get("capacity_ok")
+                                             and pb is not None and pb <= HARDWARE_LIFE_MONTHS)
         else:
             out["monthly_saving_usd"] = None
             out["payback_months"] = None
+            out["never_pays_back"] = True
+            out["financing_cost_usd"] = None
+            out["invest_recommended"] = False
         out["within_budget"] = (bi.budget_usd is None or (roi and roi["upfront_investment_usd"] and roi["upfront_investment_usd"] <= bi.budget_usd))
         return out
 
@@ -292,13 +365,21 @@ class BusinessFeasibility:
         local_opex = base.get("local_opex_month_usd") or 0
         upfront = base.get("upfront_usd") or 0
         rate = bi.usd_try
-        # 36 aylık toplam sahip olma maliyeti (TCO)
+        # 36 aylık toplam sahip olma maliyeti (TCO).
+        # Yerel yola capex'in FİNANSMAN MALİYETİ de eklenir: o para ya krediyle
+        # bulunur ya da başka bir yerde getiri sağlardı. Aksi halde yerel yol
+        # haksız biçimde ucuz görünür.
         months = 36
+        r = max(bi.annual_capital_cost_pct, 0.0) / 100.0
+        financing = upfront * ((1 + r) ** (months / 12.0) - 1) if r > 0 else 0.0
         tco_sub = sub * months
         tco_cloud = cloud * months
-        tco_local = upfront + local_opex * months
+        tco_local = upfront + local_opex * months + financing
         return {
             "months": months,
+            "annual_capital_cost_pct": bi.annual_capital_cost_pct,
+            "financing_cost_usd": round(financing, 2),
+            "financing_cost_try": round(financing * rate, 2),
             "paths": [
                 {"key": "abonelik", "label": "Mevcut abonelikte kal",
                  "monthly_usd": round(sub, 2), "upfront_usd": 0, "recommended": False,
@@ -311,7 +392,10 @@ class BusinessFeasibility:
                 {"key": "kendi", "label": "Kendi sunucunu kur", "recommended": True,
                  "monthly_usd": round(local_opex, 2), "upfront_usd": round(upfront, 2),
                  "tco_usd": round(tco_local, 2), "tco_try": round(tco_local * rate, 2),
-                 "note": "Peşin TL yatırımı + düşük sabit işletme; veri sizde, kullanım sınırsız, hacim büyüdükçe en avantajlı."},
+                 "financing_cost_usd": round(financing, 2),
+                 "note": (f"Peşin yatırım + düşük işletme; veri sizde, kullanım sınırsız. "
+                          f"36 ay toplamına capex'in ${financing:,.0f} finansman maliyeti dahildir "
+                          f"(%{bi.annual_capital_cost_pct:.0f} yıllık sermaye maliyeti).")},
             ],
         }
 
@@ -340,22 +424,40 @@ class BusinessFeasibility:
         best_key = min(paths, key=lambda k: paths[k]["tco_usd"]) if paths else "kendi"
         self_cheapest = (best_key == "kendi")
 
-        parts = [f"Önerimiz: <b>{model_name}</b> modelini <b>{hw}</b> üzerinde kendi sunucunuzda çalıştırın."]
-        if self_cheapest:
-            if payback:
-                parts.append(f"~${upfront:,.0f} yatırım, mantıklı alternatife göre yalnızca <b>{payback:.0f} ayda</b> kendini öder.")
-            if annual and annual > 0:
-                parts.append(f"Sonrasında yıllık ~${annual:,.0f} (₺{annual*bi.usd_try:,.0f}) tasarruf — 36 ayda en düşük toplam maliyet bu yolda.")
-            tone = "good"
-        else:
-            if payback and payback <= 60:
-                parts.append(f"Bugünkü hacimde bulut biraz daha ucuz görünse de, ~${upfront:,.0f} yatırım "
-                             f"~<b>{payback:.0f} ayda</b> başabaşa gelir; sonrasında her ay cebinizde kalır.")
+        never = base.get("never_pays_back", False)
+        # GÜVENLİK KURALI: Yatırım ancak donanım ömrü (36 ay) içinde kendini
+        # ödüyorsa önerilir. Sermaye maliyeti dahil geri ödeme bunu aşıyorsa
+        # (ör. 190 ay) veya hiç dönmüyorsa, dürüstçe "yatırım yapmayın" deriz.
+        payback_ok = (payback is not None) and (not never) and (payback <= HARDWARE_LIFE_MONTHS)
+
+        if not payback_ok:
+            head = "Bu ölçekte kendi sunucu yatırımı kendini çıkarmıyor — şimdilik bulut/abonelik doğru tercih."
+            det = []
+            if never:
+                det.append(f"~${upfront:,.0f} yatırımın getireceği tasarruf, sermaye maliyeti "
+                           f"(%{bi.annual_capital_cost_pct:.0f}/yıl) hesaba katıldığında capex'i hiçbir zaman karşılamıyor.")
             else:
-                parts.append(f"Bu ölçekte maliyet farkı küçük — ama kendi sunucunuzun asıl değeri fiyat değil: "
-                             f"veriniz sizde kalır, kur riskiniz olmaz ve kullanımı sınırsızca büyütebilirsiniz.")
-            parts.append("Küçük bir ekip olsanız bile veri gizliliği, bağımsızlık ve öngörülebilir maliyet için önerilir.")
-            tone = "info"
+                det.append(f"Geri ödeme ~{payback:.0f} ay; donanımın ekonomik ömrü ise {HARDWARE_LIFE_MONTHS} ay. "
+                           f"Yani yatırım kendini çıkarmadan donanım eskiyor.")
+            det.append("Kullanımınız büyüdüğünde (daha çok kullanıcı veya daha yoğun kullanım) tablo hızla değişir — "
+                       "aşağıdaki senaryolarda bunu görebilirsiniz.")
+            if bi.sector in PRIVACY_SENSITIVE:
+                det.append(f"Not: {SECTORS.get(bi.sector)} sektöründe veri gizliliği kritik olduğundan, "
+                           f"maliyet dezavantajına rağmen kendi sunucunuzu stratejik gerekçeyle tercih edebilirsiniz.")
+            return {"headline": head, "detail": " ".join(det), "tone": "warn",
+                    "payback_months": payback, "upfront_usd": upfront, "annual_saving_usd": annual,
+                    "best_path": best_key, "self_host_cheapest": self_cheapest,
+                    "invest_recommended": False, "never_pays_back": never,
+                    "self_host_advantages": adv}
+
+        parts = [f"Önerimiz: <b>{model_name}</b> modelini <b>{hw}</b> üzerinde kendi sunucunuzda çalıştırın."]
+        parts.append(f"~${upfront:,.0f} yatırım, sermaye maliyeti (%{bi.annual_capital_cost_pct:.0f}/yıl) dahil "
+                     f"<b>{payback:.0f} ayda</b> kendini öder — donanım ömrünün ({HARDWARE_LIFE_MONTHS} ay) içinde.")
+        if annual and annual > 0:
+            parts.append(f"Sonrasında yıllık ~${annual:,.0f} (₺{annual*bi.usd_try:,.0f}) tasarruf.")
+        if self_cheapest:
+            parts.append("36 ayda en düşük toplam maliyet bu yolda.")
+        tone = "good"
 
         if bi.budget_usd and not within:
             parts.append(f"⚠ Önerilen yatırım (${upfront:,.0f}) baremini (${bi.budget_usd:,.0f}) aşıyor; 'Ekonomik' katmana bakabilirsiniz.")
@@ -365,4 +467,5 @@ class BusinessFeasibility:
         return {"headline": parts[0], "detail": " ".join(parts[1:]), "tone": tone,
                 "payback_months": payback, "upfront_usd": upfront, "annual_saving_usd": annual,
                 "best_path": best_key, "self_host_cheapest": self_cheapest,
+                "invest_recommended": True, "never_pays_back": False,
                 "self_host_advantages": adv}

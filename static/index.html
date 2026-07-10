@@ -89,6 +89,8 @@
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  .row4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  @media(max-width:900px){.row4{grid-template-columns:1fr 1fr}}
   .hint{font-size:11.5px;color:var(--muted);margin-top:5px}
   .nav{display:flex;justify-content:space-between;margin-top:26px}
   .btn-sm{padding:11px 20px}
@@ -296,11 +298,13 @@
             <div><label>Aylık AI abonelik ödemesi (USD)</label><input id="spend" type="number" value="1000"><div class="hint">ChatGPT/Claude/Copilot koltuk ücretleri toplamı.</div></div>
             <div><label>Yatırım bareminiz — capex (USD)</label><input id="budget" type="number" placeholder="sınır yok"><div class="hint">Donanıma ayırabileceğiniz peşin tutar (opsiyonel).</div></div>
           </div>
-          <div class="row3">
+          <div class="row4">
             <div><label>Kalite tercihi</label><select id="quality"></select></div>
-            <div><label>USD/TRY kuru</label><input id="usdtry" type="number" step="0.1" value="34"></div>
-            <div><label>Elektrik (USD/kWh)</label><input id="elec" type="number" step="0.01" value="0.12"></div>
+            <div><label>USD/TRY kuru</label><input id="usdtry" type="number" step="0.1" value="46.9"><div class="hint">Temmuz 2026 ≈ 46,9</div></div>
+            <div><label>Elektrik (USD/kWh)</label><input id="elec" type="number" step="0.005" value="0.115"><div class="hint">≈ 5,4 TL/kWh (sanayi)</div></div>
+            <div><label>Sermaye maliyeti (%/yıl)</label><input id="capcost" type="number" step="0.5" value="15"><div class="hint">Capex'i finanse etme / bağlama bedeli</div></div>
           </div>
+          <div class="hint" style="margin-top:10px">💡 Geri ödeme süresi bu orana göre <b>iskontolanır</b> — yani paranın zaman değeri hesaba katılır. Yatırım ancak donanım ömrü (36 ay) içinde kendini ödüyorsa önerilir.</div>
           <span class="toggle-adv" onclick="document.getElementById('advanced').style.display=(document.getElementById('advanced').style.display==='block'?'none':'block')">▸ Gelişmiş (opsiyonel)</span>
           <div id="advanced">
             <div class="hint" style="margin-top:8px">Bu alanları boş bırakabilirsiniz; iş sorularınıza göre otomatik hesaplanır.</div>
@@ -413,7 +417,8 @@ async function calc(){
     use_case:selUC, employees:+$('employees').value||1, ai_users:numOrNull('aiUsers'),
     sector:$('sector').value, current_ai_spend_usd_month:+$('spend').value||0,
     budget_usd:numOrNull('budget'), quality:$('quality').value,
-    usd_try:+$('usdtry').value||34, electricity_price_usd_per_kwh:+$('elec').value||0.12,
+    usd_try:+$('usdtry').value||46.9, electricity_price_usd_per_kwh:+$('elec').value||0.115,
+    annual_capital_cost_pct:+$('capcost').value||15,
   };
   lastInputs=body;
   try{
@@ -438,7 +443,7 @@ function render(d){
         <tr><td class="muted">Donanım</td><td>${s.hardware||'—'}</td></tr>
         <tr><td class="muted">Yatırım</td><td>${fUSD(s.upfront_usd)}</td></tr>
         <tr><td class="muted">Aylık işletme</td><td>${fUSD(s.local_opex_month_usd)}</td></tr>
-        <tr><td class="muted">Geri ödeme</td><td>${s.payback_months?fN(s.payback_months,0)+' ay':'—'}</td></tr>
+        <tr><td class="muted">Geri ödeme</td><td class="${s.invest_recommended?'':'muted'}">${s.payback_months?fN(s.payback_months,0)+' ay':'Ödemiyor'}</td></tr>
       </table></div>`;
   }).join('');
 
@@ -452,6 +457,12 @@ function render(d){
 
   const advHtml=(d.self_host_advantages||[]).map(a=>`<div class="advc"><div class="h">${a[0]}</div><div class="d">${a[1]}</div></div>`).join('');
   const annual=rec.annual_saving_usd;
+  const rateTRY=+$('usdtry').value||46.9;
+  // Geri ödeme: sermaye maliyetiyle iskontolu. Yoksa dürüstçe "ödemiyor" yazar.
+  const payOk = !!(rec.invest_recommended);
+  const paybackTxt = mid.payback_months
+    ? `${fN(mid.payback_months,0)} <small>ay</small>`
+    : 'Ödemiyor';
 
   $('result').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 16px">
@@ -468,11 +479,14 @@ function render(d){
 
     <div class="verdict ${rec.tone||'info'}"><h3>${rec.headline}</h3><div class="detail">${rec.detail||''}</div></div>
     <div class="kpis">
-      <div class="kpi"><div class="k">Yıllık Tasarruf</div><div class="v ${annual>0?'good':'bad'}">${fUSD(annual)}</div><div class="s">${annual?fTRY(annual*(+$('usdtry').value||34)):''}</div></div>
-      <div class="kpi"><div class="k">Geri Ödeme</div><div class="v ${mid.payback_months&&mid.payback_months<=36?'good':'warn'}">${mid.payback_months?fN(mid.payback_months,0):'—'} <small>ay</small></div><div class="s">${fUSD(mid.baseline_month_usd)}/ay gidere göre</div></div>
+      <div class="kpi"><div class="k">Yıllık Tasarruf</div><div class="v ${annual>0?'good':'bad'}">${fUSD(annual)}</div><div class="s">${annual?fTRY(annual*rateTRY):''}</div></div>
+      <div class="kpi"><div class="k">Geri Ödeme <span title="Sermaye maliyetiyle iskontolanmıştır">ⓘ</span></div>
+        <div class="v ${payOk?'good':'bad'}">${paybackTxt}</div>
+        <div class="s">${mid.payback_months?fUSD(mid.baseline_month_usd)+'/ay gidere göre':'sermaye maliyeti dahil'}</div></div>
       <div class="kpi"><div class="k">Aylık Tasarruf</div><div class="v ${mid.monthly_saving_usd>0?'good':'bad'}">${fUSD(mid.monthly_saving_usd)}</div><div class="s">${mid.monthly_saving_try!=null?fTRY(mid.monthly_saving_try)+'/ay':''}</div></div>
       <div class="kpi"><div class="k">Tek Seferlik Yatırım</div><div class="v">${fUSD(mid.upfront_usd)}</div><div class="s">${fTRY(mid.upfront_try)} · donanım + sunucu</div></div>
     </div>
+    ${mid.financing_cost_usd?`<div class="hint" style="margin:-8px 0 20px">💰 Bu yatırımın 36 ay boyunca bağlanmasının <b>finansman maliyeti ${fUSD(mid.financing_cost_usd)}</b> (${fTRY(mid.financing_cost_try)}) — %${d.comparison.annual_capital_cost_pct} yıllık sermaye maliyetiyle. Bu tutar aşağıdaki "kendi sunucu" toplamına dahildir.</div>`:''}
 
     <div class="block"><h4>Neden kendi sunucunuz? — sadece fiyat değil</h4>
       <p class="muted" style="margin:-6px 0 14px;font-size:12.5px">Karar çoğu zaman sadece "bu ay hangisi ucuz" diye veriliyor. Oysa kendi sunucunuzun maliyet-dışı avantajları küçük ekiplerde bile onu öne çıkarır:</p>

@@ -129,8 +129,9 @@ class QuickRequest(BaseModel):
     current_ai_spend_usd_month: float = 0.0
     budget_usd: Optional[float] = None
     quality: str = "dengeli"
-    usd_try: float = 34.0
-    electricity_price_usd_per_kwh: float = 0.12
+    usd_try: float = 46.9
+    electricity_price_usd_per_kwh: float = 0.115
+    annual_capital_cost_pct: float = 15.0
 
 
 @app.get("/api/usecases")
@@ -238,10 +239,14 @@ def _build_csv(d: Dict[str, Any], lead: Dict[str, str]) -> str:
                      ("current_ai_spend_usd_month", "mevcut_aylik_ai_harcamasi_usd")]:
         L.append(_row("Girdiler", label, echo.get(k, ""), "%" if k == "adoption_pct" else ""))
 
+    cmp_ = d.get("comparison", {})
     L.append(_row("Oneri", "baslik", _strip_html(rec.get("headline", "")), ""))
+    L.append(_row("Oneri", "yatirim_onerilir_mi", "EVET" if rec.get("invest_recommended") else "HAYIR", ""))
     L.append(_row("Oneri", "onerilen_yol", rec.get("best_path", ""), ""))
     L.append(_row("Oneri", "yatirim_usd", rec.get("upfront_usd", ""), "USD"))
-    L.append(_row("Oneri", "geri_odeme", rec.get("payback_months", ""), "ay"))
+    L.append(_row("Oneri", "geri_odeme_iskontolu", rec.get("payback_months") or "odemiyor", "ay"))
+    L.append(_row("Oneri", "yillik_sermaye_maliyeti", cmp_.get("annual_capital_cost_pct", ""), "%"))
+    L.append(_row("Oneri", "capex_finansman_maliyeti_36ay", cmp_.get("financing_cost_usd", ""), "USD"))
     L.append(_row("Oneri", "yillik_tasarruf_usd", rec.get("annual_saving_usd", ""), "USD"))
 
     for p in d.get("comparison", {}).get("paths", []):
